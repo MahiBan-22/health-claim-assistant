@@ -9,3 +9,7 @@ node_modules/
 dist/
 *.tsbuildinfo
 logs/
+
+# Browser test artifacts
+frontend/test-results/
+frontend/playwright-report/

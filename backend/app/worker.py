@@ -14,4 +14,10 @@ if __name__ == "__main__":
     configure_logging("worker", settings()).info("worker_started")
     connection = Redis.from_url(settings().redis_url)
     worker_class = WindowsWorker if os.name == "nt" else Worker
-    worker_class(["claims"], connection=connection, log_job_description=False).work()
+    from . import observability
+    if os.name == "nt": observability.initialize("worker", settings())
+    # Unix RQ workhorses initialize their own SDK after fork in process_run.
+    try:
+        worker_class(["claims"], connection=connection, log_job_description=False).work()
+    finally:
+        observability.shutdown()

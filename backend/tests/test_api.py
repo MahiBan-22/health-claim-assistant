@@ -6,7 +6,7 @@ from app.main import app
 
 @pytest.fixture
 def client(tmp_path, monkeypatch):
-    config = Settings(data_dir=tmp_path, log_dir=tmp_path / "logs", local_access_token="customer-secret", reviewer_access_token="reviewer-secret")
+    config = Settings(neatlogs_enabled=False, data_dir=tmp_path, log_dir=tmp_path / "logs", local_access_token="customer-secret", reviewer_access_token="reviewer-secret")
     monkeypatch.setattr("app.main.settings", lambda: config)
     monkeypatch.setattr(db, "settings", lambda: config)
     monkeypatch.setattr(db, "_engine", None)

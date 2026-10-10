@@ -27,6 +27,13 @@ class Settings(BaseSettings):
     redis_url: str = "redis://127.0.0.1:6379/0"
     local_access_token: SecretStr = SecretStr("")
     reviewer_access_token: SecretStr = SecretStr("")
+    app_version: str = Field(default="dev", pattern=r"^(dev|[0-9a-f]{7,40})$")
+    neatlogs_enabled: bool = True
+    neatlogs_api_key: SecretStr = SecretStr("")
+    neatlogs_endpoint: Literal["https://ingest.neatlogs.com", "https://eu.ingest.neatlogs.com"] = "https://ingest.neatlogs.com"
+    neatlogs_workflow_name: str = "claim-evidence-assistant"
+    neatlogs_sample_rate: float = Field(default=1.0, ge=0, le=1)
+    neatlogs_shutdown_timeout_ms: int = Field(default=5000, ge=100, le=30000)
     llm_model: str = "gpt-6-luna"
     oauth_account: str = "default"
     oauth_redirect_uri: str = "http://127.0.0.1:8000/auth/chatgpt/callback"

@@ -174,3 +174,8 @@ Third-party library logs are not indiscriminately exported into these files.
 After changing backend code or Compose mounts, rebuild the running services:
 
     docker compose up -d --build --no-deps api worker
+
+## NeatLogs observability
+
+API and worker tracing, metadata-only masking, local metrics and developer trace
+search are implemented. See [observability setup and investigation](docs/observability.md).

@@ -1,7 +1,9 @@
+from .observability import traced
 from io import BytesIO
 from pathlib import Path
 from .config import settings
 
+@traced("claim.extraction")
 def extract(data: bytes, filename: str) -> tuple[list[dict], str]:
     suffix = Path(filename).suffix.lower()
     if suffix == ".txt":

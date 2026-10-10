@@ -1,6 +1,7 @@
 """Case scope is bound by the worker, never supplied by the model."""
 import re
 from .schemas import Finding
+from .observability import traced
 
 POLICY_KINDS = {"policy", "schedule", "endorsement"}
 
@@ -9,10 +10,12 @@ class CaseTools:
         self.documents = {d["id"]: d for d in documents}
         self.claim_reference = claim_reference
 
+    @traced("list_documents", "TOOL")
     def list_documents(self):
         return [{k: d[k] for k in ("id", "logical_id", "version", "kind", "filename", "sha256", "extraction_status")}
                 for d in self.documents.values()]
 
+    @traced("search", "RETRIEVER")
     def search(self, query: str, policy=False, limit=12):
         terms = set(re.findall(r"[a-z0-9]{3,}", query.lower()))
         candidates = []
@@ -26,16 +29,19 @@ class CaseTools:
                                                "kind": document["kind"], "page": page["page"], "text": page["text"]}))
         return [item for _, item in sorted(candidates, key=lambda x: x[0], reverse=True)[:limit]]
 
+    @traced("read_page", "TOOL")
     def read_page(self, document_id, version, page):
         document = self.documents.get(document_id)
         if not document or document["version"] != version:
             return None
         return next((p for p in document["pages"] if p["page"] == page), None)
 
+    @traced("find_receipts", "TOOL")
     def find_receipts(self):
         return [{**{k: d[k] for k in ("id", "version", "kind", "sha256")}, "pages": d["pages"]}
                 for d in self.documents.values() if d["kind"] == "receipt"]
 
+    @traced("validate_source_refs", "GUARDRAIL")
     def validate_source_refs(self, finding: Finding):
         errors = []
         for ref in finding.evidence_refs + finding.policy_refs + finding.receipt_refs:
@@ -55,6 +61,7 @@ class CaseTools:
                     errors.append("Submission citation must refer to a receipt")
         return list(dict.fromkeys(errors))
 
+    @traced("check_identifiers", "GUARDRAIL")
     def check_identifiers(self, finding: Finding):
         errors = []
         for ref in finding.evidence_refs:

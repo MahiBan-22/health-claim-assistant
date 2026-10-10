@@ -27,9 +27,14 @@ logger = logging.getLogger(__name__)
 async def lifespan(app):
     configure_logging("api", settings())
     logging.getLogger("uvicorn.access").disabled = True  # OAuth codes/tickets must not enter raw access logs.
+    from . import observability
+    observability.initialize("api", settings())
     logger.info("api_started")
-    yield
-    logger.info("api_stopped")
+    try:
+        yield
+    finally:
+        observability.shutdown()
+        logger.info("api_stopped")
 
 app = FastAPI(title="Health Claim Evidence Assistant", version="0.1.0", lifespan=lifespan)
 app.add_middleware(CORSMiddleware, allow_origins=settings().cors_origins,

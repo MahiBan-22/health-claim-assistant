@@ -10,6 +10,7 @@ from . import db
 from .model import LunaModel, ModelPaused
 from .schemas import Plan, Finding, PolicyContext, Verification
 from .tools import CaseTools, POLICY_KINDS
+from .observability import span, traced, graph_callbacks, worker_telemetry
 
 class State(TypedDict, total=False):
     run_id: str
@@ -40,6 +41,7 @@ class ClaimWorkflow:
             raise ModelPaused("Evidence context exceeds budget; split the case or increase the configured limit")
         return self.model.generate(role, instructions, payload, schema)
 
+    @traced("plan", "AGENT")
     def plan(self, state):
         communications = [d for d in self.docs if d["kind"] == "insurer_communication"]
         if not communications:
@@ -49,8 +51,11 @@ class ClaimWorkflow:
                          {"communications": [{k: d[k] for k in ("id", "version", "kind", "pages")} for d in communications]}, Plan)
         if len(plan.requests) > self.config.max_requests:
             raise ValueError("Request budget exceeded")
+        from .observability import current_span
+        if current_span(): current_span().set_attribute("claim.result_count", len(plan.requests))
         return {"requests": [r.model_dump() for r in plan.requests], "index": 0, "findings": [], "attempts": 0, "correction": ""}
 
+    @traced("evidence", "AGENT")
     def evidence(self, state):
         request = state["requests"][state["index"]]
         query = request["text"] + " " + " ".join(request["required_evidence"]) + " " + state.get("correction", "")
@@ -65,6 +70,7 @@ class ClaimWorkflow:
             raise ValueError("Finding request ID does not match task")
         return {"current": finding.model_dump()}
 
+    @traced("policy", "AGENT")
     def policy(self, state):
         request = state["requests"][state["index"]]
         if not request["needs_policy"]:
@@ -81,9 +87,15 @@ class ClaimWorkflow:
             finding.explanation += "\nPolicy context: " + context.explanation
         return {"current": finding.model_dump(), "policy": context.model_dump()}
 
+    @traced("verify", "AGENT")
     def verify(self, state):
         finding = Finding.model_validate(state["current"])
         deterministic = self.tools.validate_source_refs(finding) + self.tools.check_identifiers(finding)
+        from .observability import current_span
+        active = current_span()
+        if active:
+            active.set_attribute("claim.request_index", state["index"])
+            active.set_attribute("claim.correction_count", state.get("attempts", 0))
         if state["requests"][state["index"]]["needs_policy"] and not finding.policy_refs:
             deterministic.append("Policy interpretation requires applicable cited policy wording")
         verdict = self.call("Verifier Agent",
@@ -111,6 +123,10 @@ class ClaimWorkflow:
             finding.evidence_status = "conflicting_evidence"
             if finding.submission_status == "confirmed_by_receipt":
                 finding.submission_status = "not_established"
+        if active:
+            active.set_attribute("claim.source_error_count", len(deterministic))
+            active.set_attribute("claim.unresolved_count", len(finding.unresolved_questions))
+            active.set_attribute("neatlogs.guardrail.passed", not deterministic and verdict.decision == "supported")
         result = finding.model_dump()
         result["verification"] = verdict.model_dump()
         result["source_checks"] = deterministic
@@ -122,6 +138,7 @@ class ClaimWorkflow:
             return "evidence"
         return "evidence" if state["index"] < len(state["requests"]) else "package"
 
+    @traced("claim.package", "TOOL")
     def package(self, state):
         existing = db.rows("SELECT id FROM reports WHERE run_id=:run", run=self.run["id"])
         if existing:
@@ -163,6 +180,7 @@ class ClaimWorkflow:
         builder.add_edge("package", END)
         return builder.compile(checkpointer=checkpointer)
 
+@worker_telemetry
 def process_run(run_id: str):
     from filelock import FileLock
     from .notifications import notify_case
@@ -173,7 +191,14 @@ def process_run(run_id: str):
         if not records or records[0]["status"] != "queued":
             return
         try:
-            _process_run(run_id)
+            with span("claim.analysis", "WORKFLOW", **{"claim.run_id": run_id, "claim.instrumentation_version": "1"}) as active:
+                logging.getLogger(__name__).info("analysis_trace run_id=%s trace_id=%s", run_id, active.trace_id)
+                _process_run(run_id)
+                outcome = db.rows("SELECT status FROM analyses WHERE id=:id", id=run_id)
+                if outcome:
+                    active.set_attribute("claim.analysis_status", outcome[0]["status"])
+                    active.set_attribute("claim.outcome", outcome[0]["status"])
+                    if outcome[0]["status"] == "paused": active.error("AnalysisPaused")
         finally:
             notify_case(records[0]["case_id"])
 
@@ -195,12 +220,16 @@ def _process_run(run_id: str):
     notify_case(run["case_id"])
     try:
         workflow = ClaimWorkflow(run)
+        from .observability import current_span
+        if current_span():
+            current_span().set_attribute("claim.document_count", len(workflow.docs))
+            current_span().set_attribute("claim.source_versions", json.dumps([{ "document_id": d["id"], "version": d["version"]} for d in workflow.docs]))
         workflow.model.check_available()
         checkpoint_file = settings().data_dir / "checkpoints.sqlite"
         with sqlite3.connect(str(checkpoint_file), check_same_thread=False) as connection:
             saver = SqliteSaver(connection)
             graph = workflow.graph(saver)
-            config = {"configurable": {"thread_id": run["thread_id"]}, "recursion_limit": 120}
+            config = {"configurable": {"thread_id": run["thread_id"]}, "recursion_limit": 120, "callbacks": graph_callbacks(), "run_name": "claim.graph"}
             saved = graph.get_state(config)
             graph.invoke(None if saved.values else {"run_id": run_id}, config)
         logger.info("analysis_completed run_id=%s", run_id)

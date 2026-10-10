@@ -39,7 +39,7 @@ therefore starts with a vertical slice and tracks remaining capabilities explici
 | Review | Review is an auditable event, not a silent rewrite of history. | Append-only review decision and rationale tied to the run task; previous package remains unchanged. Revised reviewed reports remain pending. |
 | Model connection | A ChatGPT subscription cannot be assumed to authorize an arbitrary model or application. | OAuth-only adapter, live catalog check, `gpt-6-luna` default, completed-stream requirement; missing access pauses processing. |
 | OAuth lifecycle | PKCE, state, nonce, grant validation, refresh rotation, account switching, and keyring storage are a separate subsystem. | Native browser sign-in, PKCE, verified identity, scoped grants, serialized refresh rotation and Windows Credential Manager storage are implemented. Profile selection uses OAUTH_ACCOUNT; a multi-account picker remains pending. No Codex credentials are read. |
-| Observability | Raw case inputs and credentials must not enter partner traces. | No partner exports in this milestone. NeatLogs SDK instrumentation and redaction tests are pending. |
+| Observability | Raw case inputs and credentials must not enter partner traces. | NeatLogs SDK export, graph callbacks, custom model/tool spans, client-side metadata allowlisting, local metrics and read-only MCP investigation are implemented. Live synthetic tracing and hosted Doctor were verified; no clinical quality score is claimed. |
 | Partners | Entire, cfo.ai, and Crustdata have separate development/business roles. | No live partner writes or claims of connected integrations. No health records sent to business tools. |
 
 ## First milestone coverage
@@ -74,13 +74,13 @@ a synthetic Luna smoke test still require user sign-in.
    interruption tests across API, worker, checkpoint and report commit boundaries.
 5. Add the four labelled scenario families, prompt-injection/adversarial fixtures,
    policy date/endorsement cases, and measured citation-support evaluation.
-6. Integrate NeatLogs with local masking and outage tests; record an Entire
+6. Extend labelled failure/fix evaluation and detection tuning; record an Entire
    development checkpoint; export aggregate business metrics for cfo.ai and
    isolate Crustdata research behind its own authorized workflow.
 
 ## Verification status
 
-The backend suite passed **44 tests**, covering workflow contracts, authorization,
+The backend suite now passes **56 tests**, covering workflow contracts, authorization,
 source/version checks, stream completion, OAuth state/PKCE/identity validation,
 refresh rotation, vault chunking and native data migration. The React TypeScript
 check and Vite production build passed. Native API/UI health checks passed, and a
@@ -88,8 +88,9 @@ queued diagnostic executed on Windows with the WinVaultKeyring backend. Docker
 runs Redis only. Existing Docker case data was copied and hash-verified; the
 original volume was preserved.
 
-No live OAuth consent, Luna inference, OCR/Tesseract, partner integration,
-process-kill recovery, or statistical accuracy result is claimed.
+A subsequent isolated synthetic graph exercised live Luna inference and NeatLogs
+export/readback; see observability.md for evidence. OCR/Tesseract, other partner
+integrations, process-kill recovery and statistical accuracy remain unverified.
 
 ## Official model connection references
 

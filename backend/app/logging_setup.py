@@ -39,6 +39,13 @@ class RequestLoggingMiddleware:
         self.app = app
 
     async def __call__(self, scope, receive, send):
+        from .observability import span
+        if scope["type"] != "http" or scope.get("path", "").startswith("/auth/") or scope.get("path", "").endswith("/analysis-events") or scope.get("path") == "/health":
+            return await self.handle(scope, receive, send)
+        with span("claim.request", "HTTP"):
+            return await self.handle(scope, receive, send)
+
+    async def handle(self, scope, receive, send):
         if scope["type"] != "http":
             return await self.app(scope, receive, send)
         started = time.monotonic()
@@ -59,5 +66,12 @@ class RequestLoggingMiddleware:
         finally:
             route = scope.get("route")
             template = getattr(route, "path", "<unmatched-or-preflight>")
+            from .observability import current_span
+            active = current_span()
+            if active:
+                active.set_attribute("claim.route", template)
+                active.set_attribute("claim.http_method", scope["method"])
+                active.set_attribute("claim.http_status", status)
+                if status >= 500: active.error("HTTPServerError")
             logger.info("request method=%s route=%s status=%d duration_ms=%.1f",
                         scope["method"], template, status, (time.monotonic() - started) * 1000)
