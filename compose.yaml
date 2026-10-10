@@ -2,16 +2,20 @@ services:
   api:
     profiles: [containers]
     build: ./backend
-    env_file: .env
+    env_file:
+      - path: .env
+        required: false
     environment:
       DATA_DIR: /data
       LOG_DIR: /logs
       REDIS_URL: redis://redis:6379/0
+      FIXTURES_DIR: /fixtures
     ports:
       - "127.0.0.1:8000:8000"
     volumes:
       - claim-data:/data
       - ./logs:/logs
+      - ./fixtures:/fixtures:ro
     depends_on:
       redis:
         condition: service_healthy
@@ -19,7 +23,9 @@ services:
     profiles: [containers]
     build: ./backend
     command: ["python", "-m", "app.worker"]
-    env_file: .env
+    env_file:
+      - path: .env
+        required: false
     environment:
       DATA_DIR: /data
       LOG_DIR: /logs

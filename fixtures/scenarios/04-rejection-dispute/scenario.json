@@ -1,0 +1,59 @@
+{
+  "order": 4,
+  "accent": "rose",
+  "title": "My claim was rejected",
+  "claim_reference": "SYN-S4-4004",
+  "scenario": "Scenario 4 - Rejection dispute",
+  "summary": "A diabetes-related claim is rejected for a waiting period and for non-disclosure. Your schedule and records tell a different story about the dates.",
+  "what_to_expect": [
+    "Each rejection reason becomes its own issue with a dated evidence trail",
+    "The insurer's stated inception date is compared with the schedule you hold",
+    "A reconsideration draft is prepared for review, with no promise of reversal and no accusation"
+  ],
+  "documents": [
+    {
+      "file": "01-rejection-letter.txt",
+      "kind": "insurer_communication"
+    },
+    {
+      "file": "02-policy-wording.txt",
+      "kind": "policy"
+    },
+    {
+      "file": "03-policy-schedule.txt",
+      "kind": "schedule"
+    },
+    {
+      "file": "04-proposal-form.txt",
+      "kind": "other"
+    },
+    {
+      "file": "05-discharge-summary.txt",
+      "kind": "clinical"
+    },
+    {
+      "file": "06-first-diagnosis-record.txt",
+      "kind": "clinical"
+    }
+  ],
+  "expected": {
+    "requests": 2,
+    "findings": [
+      {
+        "about": "waiting period",
+        "needs_policy": true,
+        "review_required": true
+      },
+      {
+        "about": "non-disclosure",
+        "needs_policy": true,
+        "review_required": true
+      }
+    ],
+    "must_not_claim": [
+      "the rejection will be reversed",
+      "the insurer acted dishonestly",
+      "the customer committed fraud"
+    ]
+  }
+}

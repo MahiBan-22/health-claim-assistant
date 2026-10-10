@@ -42,7 +42,7 @@ class RequestLoggingMiddleware:
         from .observability import span
         if scope["type"] != "http" or scope.get("path", "").startswith("/auth/") or scope.get("path", "").endswith("/analysis-events") or scope.get("path") == "/health":
             return await self.handle(scope, receive, send)
-        with span("claim.request", "HTTP"):
+        with span("claim.request", "TASK"):
             return await self.handle(scope, receive, send)
 
     async def handle(self, scope, receive, send):

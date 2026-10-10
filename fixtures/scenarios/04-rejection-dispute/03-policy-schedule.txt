@@ -1,0 +1,9 @@
+SYNTHETIC APPLICATION TEST DATA - NOT A REAL CLAIM
+Document: Policy schedule
+Policy number: SYN-POL-404
+Insured person: Demo Patient
+Member ID: SYN-MEM-404
+First policy inception date: 1 June 2021
+Continuous coverage: renewed without a break on 1 June 2022, 1 June 2023, 1 June 2024, 1 June 2025 and 1 June 2026
+Current policy period: 1 June 2026 to 31 May 2027
+Policy wording: Example Health Policy Wording, version 2.1

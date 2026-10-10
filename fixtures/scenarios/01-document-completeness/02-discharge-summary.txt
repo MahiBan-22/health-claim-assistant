@@ -1,0 +1,13 @@
+SYNTHETIC APPLICATION TEST DATA - NOT A REAL CLAIM
+Hospital: Example Test Hospital
+Claim reference: SYN-S1-1001
+Member ID: SYN-MEM-101
+Patient: Demo Patient
+Document designation: PROVISIONAL DISCHARGE SUMMARY
+Admission date: 1 October 2026
+Discharge date: 5 October 2026
+Recorded diagnosis: dengue
+Record reference: laboratory report dated 2 October 2026.
+
+This is a provisional record. The final signed discharge summary has not yet been issued.
+Signature status: unsigned provisional copy.

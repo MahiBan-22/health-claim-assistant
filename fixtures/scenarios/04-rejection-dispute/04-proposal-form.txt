@@ -1,0 +1,10 @@
+SYNTHETIC APPLICATION TEST DATA - NOT A REAL CLAIM
+Document: Proposal form (copy held by the customer)
+Policy number: SYN-POL-404
+Proposer: Demo Patient
+Proposal date: 20 May 2021
+
+Question 7. Has the person to be insured ever been diagnosed with or treated for diabetes, hypertension or heart disease?
+Answer: No
+
+Declaration signed by the proposer on 20 May 2021.

@@ -1,0 +1,8 @@
+SYNTHETIC APPLICATION TEST DATA - NOT A REAL CLAIM
+Document: Endorsement
+Endorsement number: E-02
+Policy number: SYN-POL-303
+Effective date: 1 April 2026
+
+It is hereby declared and agreed that the co-payment under clause 5.2 shall not apply to claims arising during the policy period 1 April 2026 to 31 March 2027.
+All other terms and conditions of the policy remain unchanged.

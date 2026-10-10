@@ -18,7 +18,7 @@ def configure(monkeypatch, events):
     return LunaModel(), requests
 
 def test_completed_stream_uses_requested_luna(monkeypatch):
-    result = {"decision": "supported", "reasons": [], "targeted_query": None}
+    result = {"decision": "supported", "reasons": [], "targeted_query": None, "unsupported_explanation": [], "unsupported_response": []}
     model, requests = configure(monkeypatch, [{"type": "response.output_text.delta", "delta": json.dumps(result)}, {"type": "response.completed"}])
     assert model.generate("Verifier", "Check support", {}, Verification).decision == "supported"
     body = json.loads(requests[0].content)

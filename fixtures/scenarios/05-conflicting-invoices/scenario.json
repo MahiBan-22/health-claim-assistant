@@ -1,0 +1,50 @@
+{
+  "order": 5,
+  "accent": "emerald",
+  "title": "Two invoices, two totals",
+  "claim_reference": "SYN-S5-5005",
+  "scenario": "Sensitive case - Inconsistent invoices",
+  "summary": "Two copies of the same invoice show different totals and a different member ID. The insurer wants an explanation.",
+  "what_to_expect": [
+    "Both originals are kept and compared line by line",
+    "The difference is reported as inconsistent evidence needing review, never as fraud",
+    "The missing hospital explanation and payment receipt are listed as documents to obtain"
+  ],
+  "documents": [
+    {
+      "file": "01-insurer-query.txt",
+      "kind": "insurer_communication"
+    },
+    {
+      "file": "02-invoice-original.txt",
+      "kind": "bill"
+    },
+    {
+      "file": "03-invoice-revised.txt",
+      "kind": "bill"
+    }
+  ],
+  "expected": {
+    "requests": 2,
+    "findings": [
+      {
+        "about": "invoice total",
+        "evidence_status": [
+          "conflicting_evidence"
+        ],
+        "review_required": true
+      },
+      {
+        "about": "payment receipt",
+        "evidence_status": [
+          "not_found_in_available_records"
+        ]
+      }
+    ],
+    "must_not_claim": [
+      "fraud",
+      "forged",
+      "the hospital altered the invoice dishonestly"
+    ]
+  }
+}

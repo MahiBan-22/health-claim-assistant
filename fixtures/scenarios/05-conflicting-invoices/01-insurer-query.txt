@@ -1,0 +1,10 @@
+SYNTHETIC APPLICATION TEST DATA - NOT A REAL CLAIM
+Insurer: Example Test Insurance
+Claim reference: SYN-S5-5005
+Member ID: SYN-MEM-505
+Customer: Demo Patient
+Communication date: 22 August 2026
+
+We hold two copies of invoice SYN-INV-501 for the hospitalization from 9 to 12 August 2026 with different totals.
+1. Please confirm which invoice total is correct and supply the hospital's written explanation for the difference.
+2. Please supply the payment receipt for the amount you paid to the hospital.

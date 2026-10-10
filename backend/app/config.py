@@ -24,9 +24,14 @@ class Settings(BaseSettings):
             origins.append(urlunsplit((parsed.scheme, authority, "", "", "")))
         return origins
 
+    # The workspace has no login. Requests are accepted only for these Host names and UI origins.
+    allowed_hosts: str = "127.0.0.1,localhost"
+    @property
+    def trusted_hosts(self) -> set[str]:
+        return {host.strip().lower() for host in self.allowed_hosts.split(",") if host.strip()}
+
     redis_url: str = "redis://127.0.0.1:6379/0"
-    local_access_token: SecretStr = SecretStr("")
-    reviewer_access_token: SecretStr = SecretStr("")
+    fixtures_dir: Path = Path(__file__).resolve().parents[2] / "fixtures"
     app_version: str = Field(default="dev", pattern=r"^(dev|[0-9a-f]{7,40})$")
     neatlogs_enabled: bool = True
     neatlogs_api_key: SecretStr = SecretStr("")

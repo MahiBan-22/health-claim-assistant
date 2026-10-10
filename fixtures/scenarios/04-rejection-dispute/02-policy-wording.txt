@@ -1,0 +1,8 @@
+SYNTHETIC APPLICATION TEST DATA - NOT A REAL CLAIM
+Document: Example Health Policy Wording, version 2.1
+
+Clause 2.14 Pre-existing disease. A pre-existing disease means any condition that was diagnosed, or for which medical advice or treatment was received, within 48 months before the first policy inception date.
+
+Clause 3.1 Pre-existing disease waiting period. Expenses related to a pre-existing disease are not payable until 36 months of continuous coverage have elapsed since the first policy inception date.
+
+Clause 9.2 Disclosure. The policy may be void if the proposer misrepresents or does not disclose a material fact that was known to the proposer when the proposal form was completed.

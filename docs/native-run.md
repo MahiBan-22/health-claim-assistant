@@ -13,7 +13,8 @@ From a PowerShell terminal in the repository:
 The script installs locked Python/frontend dependencies, stops this project's
 Docker application containers, starts Docker Redis on 127.0.0.1:6379, and launches
 native services in hidden windows. API/UI ports are 8000/5173. Logs are in logs/.
-Use -SkipInstall when dependencies are already installed.
+Use -SkipInstall when dependencies are already installed. A .env file is optional:
+every setting has a localhost default and the workspace has no login.
 
 For the first migration from existing Docker data:
 
@@ -34,14 +35,14 @@ execution policy rather than changing the system-wide policy:
 
 ## Connect ChatGPT
 
-1. Open http://127.0.0.1:5173 and enter LOCAL_ACCESS_TOKEN from .env.
-2. In ChatGPT connection, click Continue with ChatGPT. Allow the browser popup.
+1. Open http://127.0.0.1:5173. The workspace opens directly.
+2. Choose AI engine in the sidebar and click Continue with ChatGPT. Allow the browser popup.
 3. Sign in, select the intended workspace, and authorize the requested plan-use
    permissions. The first registration uses this application's own name.
 4. On the completion page, close the sign-in tab and return to the workspace.
 5. Refresh connection if needed. Analysis is enabled only if the account's model
    catalog contains the configured gpt-6-luna model. There is no silent fallback.
-6. Start a new analysis, or resume a saved paused run through its API endpoint.
+6. Start a new analysis, or use Resume on a paused run under Analyses.
 
 The sign-in route is http://127.0.0.1:8000/auth/chatgpt/callback. Keep the native
 API running while completing sign-in. A stable, opaque host ID is stored under
@@ -89,6 +90,14 @@ and executable paths. Redis and data remain. Restart with start-native.ps1
 -SkipInstall. Avoid restarting during sign-in: pending OAuth transactions are
 short-lived and held by the API process.
 
+An analysis interrupted by a stop, crash or reboot is not lost. On start the worker
+takes data/runtime/worker.lock, moves any run left as running back to queued and
+re-enqueues unfinished runs; each resumes from its LangGraph checkpoint and still
+produces exactly one report. If Redis drops the connection, the worker loop restarts
+itself with a short backoff instead of exiting. The workspace header and the System
+status panel report a stopped worker within seconds, because they test that lock
+rather than the worker's Redis registration.
+
 Optional old container mode:
 
     docker compose --profile containers up -d --build
@@ -97,7 +106,7 @@ This mode still lacks an OS-vault bridge for live model access; use native mode
 for host ChatGPT sign-in. Default docker compose up -d starts Redis only.
 
 The Windows worker executes one job at a time in process with timer-based
-timeouts. Process isolation and automatic recovery after termination are pending.
+timeouts. Process isolation is pending.
 
 ## Diagnostics
 
@@ -115,14 +124,14 @@ Official references:
 
 ## Analysis history and reports
 
-Select a case to see Analysis history, including earlier runs while a new run is
-active. Completed runs have a View report button; no report ID entry is needed.
-Paused runs can be resumed. Delete asks for confirmation and removes the run, its
-report, review records and graph checkpoint while keeping uploaded documents.
-Queued/running analyses cannot be deleted.
+Open a claim and choose Analyses to see every run, including earlier ones while a
+new run is active. Completed runs have a View report button. Paused runs can be
+resumed. Delete asks for confirmation and removes the run, its report, review
+records and graph checkpoint while keeping uploaded documents. Queued/running
+analyses cannot be deleted. A report can be compared with the previous one, and
+its reply letter, checklist and ZIP package are available from the report screen.
 
-Analysis status uses an authenticated server-sent event connection per selected
-case. The worker publishes status changes through Redis; the API sends updated
+Analysis status uses a server-sent event connection per selected claim. The worker publishes status changes through Redis; the API sends updated
 history over the existing connection. Heartbeats keep it open without querying
 SQLite. Reconnects use a fresh snapshot to recover missed changes. The UI displays
 connection health and retries interrupted connections with a bounded backoff.

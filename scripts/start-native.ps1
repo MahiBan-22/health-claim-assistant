@@ -4,7 +4,7 @@ $repoRoot = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot ".."))
 $pythonExecutable = Join-Path $repoRoot "backend/.venv/Scripts/python.exe"
 $logDirectory = Join-Path $repoRoot "logs"
 $runtimeDirectory = Join-Path $repoRoot "data/runtime"
-if (-not (Test-Path -LiteralPath (Join-Path $repoRoot ".env"))) { throw "Create .env from .env.example and set local access tokens first." }
+# .env is optional: every setting has a localhost default and the workspace has no login.
 New-Item -ItemType Directory -Path $logDirectory -Force | Out-Null
 New-Item -ItemType Directory -Path $runtimeDirectory -Force | Out-Null
 Push-Location $repoRoot
@@ -46,8 +46,11 @@ try {
     $nodeExecutable = (Get-Command node).Source
     $viteScript = Join-Path $repoRoot "frontend/node_modules/vite/bin/vite.js"
     $uiProcess = Start-Process -FilePath $nodeExecutable -ArgumentList @(('"' + $viteScript + '"'),"--host","127.0.0.1","--port","5173","--strictPort") -WorkingDirectory (Join-Path $repoRoot "frontend") -WindowStyle Hidden -PassThru -RedirectStandardOutput (Join-Path $logDirectory "ui-console.log") -RedirectStandardError (Join-Path $logDirectory "ui-console-error.log")
-    $processes = @($apiProcess,$workerProcess,$uiProcess) | ForEach-Object { @{process_id=$_.Id;started_at=$_.StartTime.ToUniversalTime().ToString("o");executable=$_.Path} }
-    ConvertTo-Json -InputObject @($processes) | Set-Content -LiteralPath (Join-Path $runtimeDirectory "native-processes.json")
+    # Serialize each entry on its own: Windows PowerShell 5.1 wraps piped arrays in a value/Count object.
+    $entries = foreach ($process in @($apiProcess,$workerProcess,$uiProcess)) {
+        [pscustomobject]@{ process_id = $process.Id; started_at = $process.StartTime.ToUniversalTime().ToString("o"); executable = $process.Path } | ConvertTo-Json -Compress
+    }
+    "[" + ($entries -join ",") + "]" | Set-Content -LiteralPath (Join-Path $runtimeDirectory "native-processes.json") -Encoding utf8
     $ready = $false
     for ($attempt=0; $attempt -lt 30; $attempt++) {
         try { $health = Invoke-RestMethod "http://127.0.0.1:8000/health" -TimeoutSec 2; $ready = $health.oauth_setup -eq "host_sign_in"; if ($ready) { break } } catch {}
@@ -56,5 +59,5 @@ try {
     if (-not $ready) { throw "Native API failed to start. Inspect logs/api-console-error.log." }
     if ($workerProcess.HasExited -or $uiProcess.HasExited) { throw "A native service stopped during startup. Inspect logs/ console-error files." }
     Write-Host "Native workspace ready: http://127.0.0.1:5173"
-    Write-Host "Open the workspace and click Continue with ChatGPT. Tokens stay in this Windows user's credential store."
+    Write-Host "No login is needed. Choose AI engine in the sidebar to connect ChatGPT; tokens stay in this Windows user's credential store."
 } finally { Pop-Location }

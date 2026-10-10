@@ -1,0 +1,45 @@
+{
+  "order": 2,
+  "accent": "sky",
+  "title": "They asked for my bill again",
+  "claim_reference": "SYN-S2-2002",
+  "scenario": "Scenario 2 - Repeated document request",
+  "summary": "The insurer sends a second request for an itemized bill you already submitted. You hold the bill and an acknowledgement.",
+  "what_to_expect": [
+    "The bill is matched to the acknowledgement by invoice number, version and file hash",
+    "Receipt is confirmed only because the acknowledgement names this exact file",
+    "The draft asks the insurer to check its records, citing both documents"
+  ],
+  "documents": [
+    {
+      "file": "01-insurer-reminder.txt",
+      "kind": "insurer_communication"
+    },
+    {
+      "file": "02-itemized-bill.txt",
+      "kind": "bill"
+    },
+    {
+      "file": "03-bill-acknowledgement.txt",
+      "kind": "receipt"
+    }
+  ],
+  "expected": {
+    "requests": 1,
+    "findings": [
+      {
+        "about": "itemized hospital bill",
+        "evidence_status": [
+          "satisfied"
+        ],
+        "submission_status": [
+          "confirmed_by_receipt"
+        ]
+      }
+    ],
+    "must_not_claim": [
+      "the insurer accepted the charges",
+      "claim will be approved"
+    ]
+  }
+}

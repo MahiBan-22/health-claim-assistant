@@ -11,7 +11,17 @@ SCHEMA = [
     "CREATE TABLE IF NOT EXISTS analyses (id TEXT PRIMARY KEY, case_id TEXT NOT NULL REFERENCES cases(id), owner TEXT NOT NULL, thread_id TEXT NOT NULL UNIQUE, status TEXT NOT NULL, input_ids TEXT NOT NULL, report_id TEXT, error TEXT, created_at TEXT NOT NULL)",
     "CREATE TABLE IF NOT EXISTS reports (id TEXT PRIMARY KEY, run_id TEXT NOT NULL UNIQUE REFERENCES analyses(id), case_id TEXT NOT NULL, body TEXT NOT NULL, created_at TEXT NOT NULL)",
     "CREATE TABLE IF NOT EXISTS tasks (id TEXT PRIMARY KEY, run_id TEXT NOT NULL REFERENCES analyses(id), request_id TEXT NOT NULL, finding TEXT NOT NULL)",
-    "CREATE TABLE IF NOT EXISTS reviews (id TEXT PRIMARY KEY, task_id TEXT NOT NULL REFERENCES tasks(id), reviewer TEXT NOT NULL, decision TEXT NOT NULL, rationale TEXT NOT NULL, created_at TEXT NOT NULL)"
+    "CREATE TABLE IF NOT EXISTS reviews (id TEXT PRIMARY KEY, task_id TEXT NOT NULL REFERENCES tasks(id), reviewer TEXT NOT NULL, decision TEXT NOT NULL, rationale TEXT NOT NULL, created_at TEXT NOT NULL)",
+    # Customer edits sit beside the immutable report: the edited draft and ticked next actions.
+    "CREATE TABLE IF NOT EXISTS report_notes (report_id TEXT NOT NULL, key TEXT NOT NULL, value TEXT NOT NULL, updated_at TEXT NOT NULL, PRIMARY KEY (report_id, key))"
+]
+
+RUN_CLEANUP = [
+    "DELETE FROM reviews WHERE task_id IN (SELECT id FROM tasks WHERE run_id=:id)",
+    "DELETE FROM tasks WHERE run_id=:id",
+    "DELETE FROM report_notes WHERE report_id IN (SELECT id FROM reports WHERE run_id=:id)",
+    "DELETE FROM reports WHERE run_id=:id",
+    "DELETE FROM analyses WHERE id=:id",
 ]
 
 def uid():
@@ -48,6 +58,25 @@ def rows(query, **params):
 
 def execute(connection, query, **params):
     return connection.execute(text(query), params)
+
+def delete_run(connection, run_id):
+    for statement in RUN_CLEANUP:
+        execute(connection, statement, id=run_id)
+
+def notes(report_id):
+    return {r["key"]: json.loads(r["value"]) for r in rows("SELECT key, value FROM report_notes WHERE report_id=:id", id=report_id)}
+
+def save_note(report_id, key, value):
+    with transaction() as connection:
+        execute(connection, "INSERT INTO report_notes VALUES (:report,:key,:value,:time) ON CONFLICT(report_id, key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at",
+                report=report_id, key=key, value=json.dumps(value), time=now())
+
+def latest_versions(items):
+    latest = {}
+    for document in items:
+        if document["logical_id"] not in latest or latest[document["logical_id"]]["version"] < document["version"]:
+            latest[document["logical_id"]] = document
+    return list(latest.values())
 
 def documents(case_id, ids=None):
     result = rows("SELECT * FROM documents WHERE case_id=:case_id ORDER BY created_at, version", case_id=case_id)

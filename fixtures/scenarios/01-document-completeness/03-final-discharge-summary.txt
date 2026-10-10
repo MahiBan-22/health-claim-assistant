@@ -1,0 +1,15 @@
+SYNTHETIC APPLICATION TEST DATA - NOT A REAL CLAIM
+Hospital: Example Test Hospital
+Claim reference: SYN-S1-1001
+Member ID: SYN-MEM-101
+Patient: Demo Patient
+Document designation: FINAL SIGNED DISCHARGE SUMMARY
+Admission date: 1 October 2026
+Discharge date: 5 October 2026
+Recorded diagnosis: dengue
+Referenced laboratory report: SYN-LAB-101, dated 2 October 2026.
+Final summary issue date: 9 October 2026
+
+The patient was discharged on 5 October 2026. This final record supersedes the provisional discharge summary for the same admission.
+Signed by: Dr. A. Example, treating physician
+Signature status: signed final record.

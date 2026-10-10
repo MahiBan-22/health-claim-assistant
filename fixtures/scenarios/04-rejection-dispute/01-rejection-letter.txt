@@ -1,0 +1,13 @@
+SYNTHETIC APPLICATION TEST DATA - NOT A REAL CLAIM
+Insurer: Example Test Insurance
+Claim reference: SYN-S4-4004
+Member ID: SYN-MEM-404
+Customer: Demo Patient
+Communication date: 25 September 2026
+Subject: Claim rejected - hospitalization from 10 to 14 September 2026
+
+We regret that the claim is rejected for the following reasons:
+Reason 1. The pre-existing disease waiting period of 36 months under clause 3.1 has not been completed. Our records show the policy inception date as 1 June 2024, and diabetes mellitus is treated as a pre-existing disease.
+Reason 2. Diabetes mellitus was not disclosed in the proposal form, which is a non-disclosure of a material fact under clause 9.2.
+
+You may ask for reconsideration by replying with supporting documents.

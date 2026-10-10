@@ -1,0 +1,18 @@
+SYNTHETIC APPLICATION TEST DATA - NOT A REAL CLAIM
+Hospital: Example Test Hospital
+Claim reference: SYN-S3-3003
+Member ID: SYN-MEM-303
+Patient: Demo Patient
+Invoice number: SYN-INV-301
+Invoice date: 7 August 2026
+Hospitalization: 3 to 7 August 2026 (4 days)
+Currency: INR
+
+Itemized charges:
+Room charges, single room, 4 days at 8,000.00 per day     32,000.00
+Nursing and hospital services                             18,000.00
+Investigations                                            22,000.00
+Medicines                                                 30,500.00
+Consumables (gloves, masks, sanitiser)                     5,500.00
+Procedure and surgeon fee                                 12,000.00
+Total billed                                             120,000.00

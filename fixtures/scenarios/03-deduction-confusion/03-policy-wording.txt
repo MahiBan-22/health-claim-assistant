@@ -1,0 +1,11 @@
+SYNTHETIC APPLICATION TEST DATA - NOT A REAL CLAIM
+Document: Example Health Policy Wording, version 3.0
+Applies to policies issued or renewed on or after 1 April 2026.
+
+Clause 4.1 Room rent. Room rent, boarding and nursing expenses are payable up to 1% of the sum insured per day of hospitalization. Any amount charged above this limit is not payable.
+
+Clause 5.2 Co-payment. A co-payment of 10% applies to each admissible claim where the insured person was aged 61 years or above at the time of first entry into the policy.
+
+Clause 7.3 Non-payable items. The items listed in Annexure I are not payable. Annexure I includes gloves, masks, sanitiser, and administrative charges.
+
+Clause 12.1 Endorsements. An endorsement issued by the insurer forms part of the policy and prevails over the wording to the extent stated in the endorsement.

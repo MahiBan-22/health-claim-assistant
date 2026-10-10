@@ -7,11 +7,17 @@ function Stop-OwnedTree([int]$ProcessNumber) {
     foreach ($child in $children) { Stop-OwnedTree -ProcessNumber $child.ProcessId }
     Stop-Process -Id $ProcessNumber -ErrorAction SilentlyContinue
 }
-$entries = Get-Content -LiteralPath $stateFile -Raw | ConvertFrom-Json
+# Older state files nested the list under "value"; accept both shapes.
+# Assign before looping: Windows PowerShell passes the parsed array down the pipeline as one object.
+$parsed = Get-Content -LiteralPath $stateFile -Raw | ConvertFrom-Json
+$entries = foreach ($entry in $parsed) { if ($entry.PSObject.Properties['value']) { $entry.value } else { $entry } }
 foreach ($entry in $entries) {
+    if (-not $entry.process_id) { continue }
     $process = Get-Process -Id $entry.process_id -ErrorAction SilentlyContinue
     if ($null -eq $process) { continue }
-    $sameStart = $process.StartTime.ToUniversalTime().ToString("o") -eq $entry.started_at
+    # ConvertFrom-Json turns the ISO timestamp into a DateTime, so compare instants rather than text.
+    $recordedStart = ([datetime]$entry.started_at).ToUniversalTime()
+    $sameStart = [math]::Abs(($process.StartTime.ToUniversalTime() - $recordedStart).TotalSeconds) -lt 2
     $sameExecutable = $process.Path -eq $entry.executable
     if ($sameStart -and $sameExecutable) { Stop-OwnedTree -ProcessNumber $process.Id }
 }

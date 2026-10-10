@@ -1,0 +1,10 @@
+SYNTHETIC APPLICATION TEST DATA - NOT A REAL CLAIM
+Document: Policy schedule
+Policy number: SYN-POL-303
+Insured person: Demo Patient
+Member ID: SYN-MEM-303
+Age at first entry into the policy: 45 years
+Sum insured: INR 500,000.00
+Policy period: 1 April 2026 to 31 March 2027
+Policy wording: Example Health Policy Wording, version 3.0
+Endorsements attached: E-02

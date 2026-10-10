@@ -1,0 +1,81 @@
+{
+  "order": 1,
+  "accent": "violet",
+  "title": "Dengue stay: is my file complete?",
+  "claim_reference": "SYN-S1-1001",
+  "scenario": "Scenario 1 - Document completeness",
+  "summary": "The insurer asks for the final discharge summary and a lab report. You only have a summary marked provisional.",
+  "what_to_expect": [
+    "The provisional summary is not accepted as the final one",
+    "The missing lab report is reported as not found, not guessed",
+    "Submission to the insurer stays unconfirmed without a receipt"
+  ],
+  "documents": [
+    {
+      "file": "01-insurer-query.txt",
+      "kind": "insurer_communication"
+    },
+    {
+      "file": "02-discharge-summary.txt",
+      "kind": "clinical"
+    }
+  ],
+  "follow_up": {
+    "description": "Add the final signed summary (as version 2 of the provisional one) and the lab report, then run a new analysis to see what changed.",
+    "documents": [
+      {
+        "file": "03-final-discharge-summary.txt",
+        "kind": "clinical",
+        "replaces": "02-discharge-summary.txt"
+      },
+      {
+        "file": "04-laboratory-report.txt",
+        "kind": "clinical"
+      }
+    ]
+  },
+  "expected": {
+    "requests": 2,
+    "findings": [
+      {
+        "about": "final signed discharge summary",
+        "evidence_status": [
+          "partially_satisfied",
+          "not_found_in_available_records"
+        ],
+        "submission_status": [
+          "not_established"
+        ]
+      },
+      {
+        "about": "laboratory report",
+        "evidence_status": [
+          "not_found_in_available_records",
+          "partially_satisfied"
+        ],
+        "submission_status": [
+          "not_established"
+        ]
+      }
+    ],
+    "after_follow_up": [
+      {
+        "about": "final signed discharge summary",
+        "evidence_status": [
+          "satisfied"
+        ]
+      },
+      {
+        "about": "laboratory report",
+        "evidence_status": [
+          "satisfied"
+        ]
+      }
+    ],
+    "must_not_claim": [
+      "final summary is available",
+      "insurer receipt confirmed",
+      "claim will be approved"
+    ]
+  }
+}

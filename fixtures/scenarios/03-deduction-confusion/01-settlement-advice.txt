@@ -1,0 +1,17 @@
+SYNTHETIC APPLICATION TEST DATA - NOT A REAL CLAIM
+Insurer: Example Test Insurance
+Claim reference: SYN-S3-3003
+Member ID: SYN-MEM-303
+Customer: Demo Patient
+Communication date: 20 August 2026
+Subject: Settlement advice for hospitalization from 3 to 7 August 2026
+
+Amount claimed: INR 120,000.00
+Amount settled: INR 92,250.00
+
+The following deductions were applied:
+Deduction A. Room rent above eligibility: INR 12,000.00. Reason: room rent is limited to 1% of the sum insured per day under clause 4.1.
+Deduction B. Non-payable consumables: INR 5,500.00. Reason: items listed in Annexure I are not payable under clause 7.3.
+Deduction C. Co-payment: INR 10,250.00. Reason: 10% co-payment on the admissible amount of INR 102,500.00 under clause 5.2.
+
+If you disagree with a deduction, reply with the reason and supporting documents.

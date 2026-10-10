@@ -71,7 +71,7 @@ def test_real_sdk_graph_and_model_export_preserve_hierarchy_usage_and_redact(mon
     monkeypatch.setattr("app.model.ChatGPTConnection.access_token",lambda self:SECRET)
     original = httpx.Client
     def respond(request):
-        content = {"decision":"supported","reasons":[],"targeted_query":None}
+        content = {"decision":"supported","reasons":[],"targeted_query":None,"unsupported_explanation":[],"unsupported_response":[]}
         events = [{"type":"response.output_text.delta","delta":json.dumps(content)},
                   {"type":"response.completed","response":{"usage":{"input_tokens":11,"output_tokens":7,"total_tokens":18}}}]
         return httpx.Response(200,text="".join("data: "+json.dumps(e)+"\n\n" for e in events))

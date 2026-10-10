@@ -1,0 +1,17 @@
+SYNTHETIC APPLICATION TEST DATA - NOT A REAL CLAIM
+Issuer: Example Test Insurance
+Claim reference: SYN-S2-2002
+Member ID: SYN-MEM-202
+Submission event: SYN-UPLOAD-201
+Received at: 6 October 2026, 10:00 IST
+Acknowledgement number: SYN-ACK-201
+Receipt status: insurer receipt acknowledged
+
+The insurer acknowledges receipt of the following attachment for this claim:
+Filename: 02-itemized-bill.txt
+Invoice number: SYN-INV-201
+Document version: 1
+SHA256 of attachment: 6654658a7ffb8d5acc268ccf2bc7272500d5294cfe96768361c34561536e4067
+Scope: complete itemized bill for hospitalization from 1 to 5 October 2026, total INR 48,000.00.
+
+This acknowledgement applies only to the bill above. Receipt does not mean the claim or charges have been accepted.

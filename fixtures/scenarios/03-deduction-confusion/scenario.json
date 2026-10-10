@@ -1,0 +1,70 @@
+{
+  "order": 3,
+  "accent": "amber",
+  "title": "Why was my settlement cut?",
+  "claim_reference": "SYN-S3-3003",
+  "scenario": "Scenario 3 - Coverage and deduction confusion",
+  "summary": "A settlement letter lists three deductions. You have the bill, the policy wording, the schedule and an endorsement.",
+  "what_to_expect": [
+    "Each deduction is explained separately against the clause the insurer cites",
+    "The room-rent and consumables deductions are traced to the wording and the bill",
+    "The co-payment deduction is flagged: the endorsement and the schedule do not match the insurer's reason"
+  ],
+  "documents": [
+    {
+      "file": "01-settlement-advice.txt",
+      "kind": "insurer_communication"
+    },
+    {
+      "file": "02-itemized-bill.txt",
+      "kind": "bill"
+    },
+    {
+      "file": "03-policy-wording.txt",
+      "kind": "policy"
+    },
+    {
+      "file": "04-policy-schedule.txt",
+      "kind": "schedule"
+    },
+    {
+      "file": "05-endorsement-e02.txt",
+      "kind": "endorsement"
+    }
+  ],
+  "expected": {
+    "requests": 3,
+    "findings": [
+      {
+        "about": "room rent",
+        "evidence_status": [
+          "satisfied",
+          "partially_satisfied"
+        ],
+        "needs_policy": true
+      },
+      {
+        "about": "consumables",
+        "evidence_status": [
+          "satisfied",
+          "partially_satisfied"
+        ],
+        "needs_policy": true
+      },
+      {
+        "about": "co-payment",
+        "evidence_status": [
+          "conflicting_evidence",
+          "partially_satisfied",
+          "satisfied"
+        ],
+        "needs_policy": true,
+        "review_required": true
+      }
+    ],
+    "must_not_claim": [
+      "the full amount will be recovered",
+      "the insurer acted in bad faith"
+    ]
+  }
+}

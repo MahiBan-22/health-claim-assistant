@@ -1,0 +1,12 @@
+SYNTHETIC APPLICATION TEST DATA - NOT A REAL CLAIM
+Insurer: Example Test Insurance
+Claim reference: SYN-S2-2002
+Member ID: SYN-MEM-202
+Customer: Demo Patient
+Communication date: 12 October 2026
+Subject: Second request for itemized hospital bill
+
+Our records show the itemized hospital bill for the hospitalization from 1 to 5 October 2026 as outstanding. This is our second request.
+Please submit the complete itemized hospital bill showing each charge and the total billed amount.
+
+If you have already submitted this document, please share the acknowledgement you received. This reminder does not communicate an approval, rejection or settlement amount.

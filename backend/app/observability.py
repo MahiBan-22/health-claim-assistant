@@ -39,7 +39,7 @@ ENUMS = {
     "claim.service": {"api", "worker", "diagnostic"},
     "claim.stream_state": {"started", "completed", "interrupted"},
     "claim.role": {"request planner", "Evidence Agent", "Policy Agent", "Verifier Agent"},
-    "claim.http_method": {"GET", "POST", "DELETE", "OPTIONS"},
+    "claim.http_method": {"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
     "neatlogs.llm.provider": {"openai"},
     "neatlogs.llm.model_name": {"gpt-6-luna"},
     "neatlogs.llm.is_streaming": {True, False},
@@ -52,7 +52,7 @@ NAMES = {"claim.analysis", "claim.graph", "claim.model", "claim.catalog", "claim
          "verify", "package", "LangGraph", "RunnableSequence", "ChannelWrite", "ChannelRead",
          "list_documents", "search", "read_page", "find_receipts", "validate_source_refs", "check_identifiers",
          "neatlogs.trace.complete"}
-KINDS = {"workflow", "agent", "chain", "tool", "retriever", "guardrail", "llm", "http", "Neatlogs.INTERNAL"}
+KINDS = {"workflow", "agent", "chain", "tool", "retriever", "guardrail", "llm", "task", "Neatlogs.INTERNAL"}
 
 def safe_attributes(attrs):
     safe = {}
@@ -65,7 +65,7 @@ def safe_attributes(attrs):
             safe[key] = value
         elif key == "claim.error_type" and isinstance(value, str) and re.fullmatch(r"[A-Za-z][A-Za-z0-9_]{0,70}", value):
             safe[key] = value
-        elif key == "claim.route" and isinstance(value, str) and re.fullmatch(r"/[a-z/{}_]+", value):
+        elif key == "claim.route" and isinstance(value, str) and re.fullmatch(r"/[a-z/{}_-]+", value):
             safe[key] = value
         elif key in {"neatlogs.span.kind", "openinference.span.kind"} and isinstance(value, str) and value.lower() in {k.lower() for k in KINDS}:
             safe[key] = value

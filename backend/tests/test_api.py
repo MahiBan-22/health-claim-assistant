@@ -1,34 +1,54 @@
+import io
+import json
+import zipfile
+from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 from app import db
 from app.config import Settings
 from app.main import app
 
+REVIEWER = {"X-Workspace-Role": "reviewer"}
+UI = "http://127.0.0.1:5173"
+
 @pytest.fixture
 def client(tmp_path, monkeypatch):
-    config = Settings(neatlogs_enabled=False, data_dir=tmp_path, log_dir=tmp_path / "logs", local_access_token="customer-secret", reviewer_access_token="reviewer-secret")
+    config = Settings(neatlogs_enabled=False, data_dir=tmp_path, log_dir=tmp_path / "logs")
     monkeypatch.setattr("app.main.settings", lambda: config)
     monkeypatch.setattr(db, "settings", lambda: config)
     monkeypatch.setattr(db, "_engine", None)
     monkeypatch.setattr("app.main.enqueue", lambda run_id: None)
+    monkeypatch.setattr("app.main.queue_status", lambda: {"redis": True, "workers": 1, "queued": 0})
     monkeypatch.setattr("app.notifications.notify_case", lambda case_id: None)
-    with TestClient(app) as client:
+    with TestClient(app, base_url="http://127.0.0.1:8000") as client:
         yield client
     db.engine().dispose()
 
-AUTH = {"Authorization": "Bearer customer-secret"}
-
-def create_case(client):
-    response = client.post("/cases", headers=AUTH, json={"title": "Synthetic", "claim_reference": "C-1"})
+def create_case(client, reference="C-1"):
+    response = client.post("/cases", json={"title": "Synthetic", "claim_reference": reference})
     assert response.status_code == 201
     return response.json()["id"]
 
-def upload(client, case, content=b"Claim reference: C-1\nFinal signed summary", **data):
-    return client.post(f"/cases/{case}/documents", headers=AUTH, data={"kind": "clinical", **data}, files={"file": ("summary.txt", content, "text/plain")})
+def upload(client, case, content=b"Claim reference: C-1\nFinal signed summary", name="summary.txt", **data):
+    return client.post(f"/cases/{case}/documents", data={"kind": "clinical", **data}, files={"file": (name, content, "text/plain")})
 
-def test_authentication_required(client):
-    assert client.get("/cases").status_code == 401
-    assert client.get("/cases", headers={"Authorization": "Bearer wrong"}).status_code == 401
+def test_workspace_opens_without_a_login(client):
+    assert client.get("/cases").status_code == 200
+    assert client.get("/health").json()["authentication"] == "local workspace"
+    status = client.get("/system/status").json()
+    assert status["database"] and status["workers"] == 1 and status["counts"]["cases"] == 0
+
+def test_requests_from_other_sites_are_refused(client):
+    case = create_case(client)
+    assert client.get("/cases", headers={"Origin": "https://untrusted.example"}).status_code == 403
+    assert client.post("/cases", headers={"Origin": "http://127.0.0.1:9999"}, json={"title": "x", "claim_reference": "y"}).status_code == 403
+    assert client.delete(f"/cases/{case}", headers={"Sec-Fetch-Site": "cross-site"}).status_code == 403
+    assert client.get("/cases", headers={"Origin": UI}).status_code == 200
+    assert len(client.get("/cases").json()) == 1
+
+def test_rebound_host_names_are_refused(client):
+    assert client.get("/cases", headers={"Host": "attacker.example:8000"}).status_code == 400
+    assert client.get("/cases", headers={"Host": "localhost:8000"}).status_code == 200
 
 def test_versions_and_originals_are_preserved(client):
     case = create_case(client)
@@ -39,37 +59,78 @@ def test_versions_and_originals_are_preserved(client):
     assert second.status_code == 201
     assert second.json()["version"] == 2
     assert second.json()["sha256"] != original["sha256"]
-    page = client.get(f"/cases/{case}/documents/{original['id']}/pages/1", headers=AUTH).json()
+    page = client.get(f"/cases/{case}/documents/{original['id']}/pages/1").json()
     assert page["version"] == 1
     assert "Final signed summary" in page["text"]
-    assert len(client.get(f"/cases/{case}/documents", headers=AUTH).json()) == 2
+    listed = client.get(f"/cases/{case}/documents").json()
+    assert [(d["version"], d["is_latest"]) for d in listed] == [(1, False), (2, True)]
+    assert "path" not in listed[0] and listed[0]["page_count"] == 1
 
 def test_document_cannot_be_read_through_other_case(client):
     case, other = create_case(client), create_case(client)
     document = upload(client, case).json()["id"]
-    assert client.get(f"/cases/{other}/documents/{document}/pages/1", headers=AUTH).status_code == 404
-    assert client.get(f"/cases/{other}/documents/{document}/original", headers=AUTH).status_code == 404
+    assert client.get(f"/cases/{other}/documents/{document}/pages/1").status_code == 404
+    assert client.get(f"/cases/{other}/documents/{document}/original").status_code == 404
+    assert client.get(f"/cases/{other}/documents/{document}").status_code == 404
+
+def test_category_is_suggested_and_can_be_corrected(client):
+    case = create_case(client)
+    letter = client.post(f"/cases/{case}/documents", files={"file": ("letter.txt", b"Communication date: 8 October 2026\nPlease supply the final discharge summary.", "text/plain")}).json()
+    assert letter["kind"] == "insurer_communication"
+    unknown = client.post(f"/cases/{case}/documents", files={"file": ("notes.txt", b"Some unrelated text", "text/plain")}).json()
+    assert unknown["kind"] == "other"
+    assert client.patch(f"/cases/{case}/documents/{unknown['id']}", data={"kind": "bill"}).status_code == 200
+    assert {d["kind"] for d in client.get(f"/cases/{case}/documents").json()} == {"insurer_communication", "bill"}
+    assert client.patch(f"/cases/{case}/documents/{unknown['id']}", data={"kind": "invented"}).status_code == 422
+
+def test_claim_reference_in_documents_is_surfaced_and_case_can_be_corrected(client):
+    case = create_case(client, "TYPO-1")
+    document = upload(client, case, b"Claim reference: SYN-DEMO-001\nPROVISIONAL summary").json()
+    assert document["claim_references"] == ["SYN-DEMO-001"]
+    updated = client.patch(f"/cases/{case}", json={"claim_reference": "SYN-DEMO-001"}).json()
+    assert updated["claim_reference"] == "SYN-DEMO-001" and updated["title"] == "Synthetic" and updated["document_count"] == 1
+
+def test_unused_document_can_be_removed_but_analysed_one_cannot(client):
+    case = create_case(client)
+    query = upload(client, case, b"Please supply a final summary", kind="insurer_communication").json()
+    assert client.post(f"/cases/{case}/analyses").status_code == 202
+    extra = upload(client, case, b"Uploaded by mistake").json()
+    assert client.delete(f"/cases/{case}/documents/{query['id']}").status_code == 409
+    assert client.delete(f"/cases/{case}/documents/{extra['id']}").status_code == 200
+    assert [d["id"] for d in client.get(f"/cases/{case}/documents").json()] == [query["id"]]
+
+def test_timeline_reads_dates_from_latest_versions(client):
+    case = create_case(client)
+    first = upload(client, case, b"Admission date: 1 October 2026\nDischarge date: 2026-10-05").json()
+    upload(client, case, b"Admission date: 2 October 2026", logical_id=first["logical_id"])
+    upload(client, case, b"Received at: 06/10/2026, 10:00 IST", name="ack.txt", kind="receipt")
+    events = client.get(f"/cases/{case}/timeline").json()
+    assert [(e["date"], e["kind"]) for e in events] == [("2026-10-02", "clinical"), ("2026-10-06", "receipt")]
 
 def test_analysis_freezes_latest_versions(client):
     case = create_case(client)
+    assert client.post(f"/cases/{case}/analyses").status_code == 422
     first = upload(client, case, b"Please supply a summary", kind="insurer_communication").json()
-    run = client.post(f"/cases/{case}/analyses", headers=AUTH)
+    run = client.post(f"/cases/{case}/analyses")
     assert run.status_code == 202
     before = run.json()
     second = upload(client, case, b"Please supply a final summary", kind="insurer_communication", logical_id=first["logical_id"]).json()
-    after = client.post(f"/cases/{case}/analyses", headers=AUTH).json()
+    after = client.post(f"/cases/{case}/analyses").json()
     assert first["id"] in before["input_ids"]
     assert first["id"] not in after["input_ids"]
     assert second["id"] in after["input_ids"]
 
-def test_customer_cannot_record_review(client):
-    assert client.post("/tasks/no-such-task/review", headers=AUTH, json={"decision": "approved", "rationale": "I have reviewed the evidence"}).status_code == 403
+def test_review_needs_reviewer_mode(client):
+    body = {"decision": "approved", "rationale": "I have reviewed the evidence"}
+    assert client.post("/tasks/no-such-task/review", json=body).status_code == 403
+    assert client.post("/tasks/no-such-task/review", headers=REVIEWER, json=body).status_code == 404
+    assert client.get("/review-queue").status_code == 403
 
 @pytest.mark.parametrize("origin", ["http://127.0.0.1:5173", "http://localhost:5173"])
 def test_local_ui_preflight(client, origin):
     response = client.options("/cases", headers={
-        "Origin": origin, "Access-Control-Request-Method": "GET",
-        "Access-Control-Request-Headers": "authorization,content-type",
+        "Origin": origin, "Access-Control-Request-Method": "PATCH",
+        "Access-Control-Request-Headers": "content-type,x-workspace-role",
     })
     assert response.status_code == 200
     assert response.headers["access-control-allow-origin"] == origin
@@ -80,11 +141,6 @@ def test_unconfigured_origin_rejected(client, origin):
     assert response.status_code == 400
     assert "access-control-allow-origin" not in response.headers
 
-def test_auth_error_still_has_cors_headers(client):
-    response = client.get("/cases", headers={"Origin": "http://localhost:5173"})
-    assert response.status_code == 401
-    assert response.headers["access-control-allow-origin"] == "http://localhost:5173"
-
 def test_custom_ui_port_alias():
     config = Settings(app_origin="http://localhost:6000")
     assert set(config.cors_origins) == {"http://localhost:6000", "http://127.0.0.1:6000"}
@@ -93,58 +149,129 @@ def test_remote_origin_is_not_expanded():
     config = Settings(app_origin="https://claims.example")
     assert config.cors_origins == ["https://claims.example"]
 
-def test_chatgpt_control_requires_local_auth(client):
-    assert client.post("/auth/chatgpt/start").status_code == 401
-    assert client.get("/auth/chatgpt/status").status_code == 401
-    assert client.post("/auth/chatgpt/disconnect").status_code == 401
-
 
 def new_run(client):
     case = create_case(client)
     upload(client, case, b"Please supply a final summary", kind="insurer_communication")
-    return case, client.post(f"/cases/{case}/analyses", headers=AUTH).json()
+    return case, client.post(f"/cases/{case}/analyses").json()
+
+def completed_report(case, run, review_required=True):
+    finding = {"request_id": "r1", "evidence_status": "partially_satisfied", "submission_status": "not_established", "explanation": "Only a provisional summary is available.",
+               "response_text": "The final summary is being obtained.", "evidence_refs": [], "policy_refs": [], "receipt_refs": [], "unresolved_questions": ["Is a final version available?"],
+               "next_action": "Obtain the final summary", "review_required": review_required, "withheld_explanation": "unverified wording"}
+    document = db.documents(case)[0]
+    body = {"id": "report", "run_id": run["id"], "case_id": case, "version": 1, "claim_reference": "C-1", "requests": [{"request_id": "r1", "text": "Final summary"}],
+            "findings": [finding], "response_draft": "Dear Claims Team", "review_required": review_required,
+            "attachment_manifest": [{"document_id": document["id"], "version": 1, "filename": document["filename"], "sha256": document["sha256"]}]}
+    with db.transaction() as connection:
+        db.execute(connection, "UPDATE analyses SET status='completed',report_id='report' WHERE id=:id", id=run["id"])
+        db.execute(connection, "INSERT INTO reports VALUES ('report',:run,:case,:body,:time)", run=run["id"], case=case, body=json.dumps(body), time=db.now())
+        db.execute(connection, "INSERT INTO tasks VALUES (:id,:run,'r1',:finding)", id=run["id"] + ":r1", run=run["id"], finding=json.dumps(finding))
+    return run["id"] + ":r1"
 
 
 def test_analysis_history_and_active_delete_protection(client):
     case, run = new_run(client)
-    assert client.get(f"/cases/{case}/analyses").status_code == 401
-    assert client.get(f"/cases/{case}/analysis-events").status_code == 401
-    history = client.get(f"/cases/{case}/analyses", headers=AUTH).json()
+    history = client.get(f"/cases/{case}/analyses").json()
     assert [item["id"] for item in history] == [run["id"]]
-    assert client.delete(f"/analyses/{run['id']}", headers=AUTH).status_code == 409
+    assert client.delete(f"/analyses/{run['id']}").status_code == 409
+    assert client.delete(f"/cases/{case}").status_code == 409
     with db.transaction() as connection:
         db.execute(connection, "UPDATE analyses SET status='running' WHERE id=:id", id=run["id"])
-    assert client.delete(f"/analyses/{run['id']}", headers=AUTH).status_code == 409
+    assert client.delete(f"/analyses/{run['id']}").status_code == 409
 
 
 def test_delete_analysis_removes_report_reviews_and_checkpoint_keeps_uploads(client):
-    import json
     import sqlite3
+    from contextlib import closing
     from langgraph.checkpoint.sqlite import SqliteSaver
     case, run = new_run(client)
     checkpoint = db.settings().data_dir / "checkpoints.sqlite"
-    with sqlite3.connect(checkpoint) as connection:
+    with closing(sqlite3.connect(checkpoint)) as connection:
         saver = SqliteSaver(connection)
         saver.setup()
         connection.execute("INSERT INTO checkpoints (thread_id, checkpoint_ns, checkpoint_id, type, checkpoint) VALUES (?, '', 'checkpoint', 'json', '{}')", (run["thread_id"],))
-    with db.transaction() as connection:
-        db.execute(connection, "UPDATE analyses SET status='completed',report_id='report' WHERE id=:id", id=run["id"])
-        db.execute(connection, "INSERT INTO reports VALUES ('report',:run,:case,:body,:time)", run=run["id"], case=case, body=json.dumps({"id":"report"}), time=db.now())
-        db.execute(connection, "INSERT INTO tasks VALUES ('task',:run,'request','{}')", run=run["id"])
-        db.execute(connection, "INSERT INTO reviews VALUES ('review','task','reviewer','approved','Reviewed',:time)", time=db.now())
-    assert client.get('/reports/report', headers=AUTH).status_code == 200
-    assert client.delete(f"/analyses/{run['id']}").status_code == 401
-    assert client.delete(f"/analyses/{run['id']}", headers=AUTH).status_code == 200
-    assert client.get(f"/cases/{case}/analyses", headers=AUTH).json() == []
-    assert client.get(f"/analyses/{run['id']}", headers=AUTH).status_code == 404
-    assert client.get('/reports/report', headers=AUTH).status_code == 404
-    assert db.rows("SELECT * FROM reviews") == []
-    assert db.rows("SELECT * FROM tasks") == []
+        connection.commit()
+    task = completed_report(case, run)
+    assert client.post(f"/tasks/{task}/review", headers=REVIEWER, json={"decision": "approved", "rationale": "Reviewed the cited pages"}).status_code == 201
+    client.put("/reports/report/draft", json={"text": "My edited letter"})
+    assert client.get('/reports/report').status_code == 200
+    assert client.delete(f"/analyses/{run['id']}").status_code == 200
+    assert client.get(f"/cases/{case}/analyses").json() == []
+    assert client.get(f"/analyses/{run['id']}").status_code == 404
+    assert client.get('/reports/report').status_code == 404
+    assert db.rows("SELECT * FROM reviews") == [] and db.rows("SELECT * FROM tasks") == [] and db.rows("SELECT * FROM report_notes") == []
     documents = db.documents(case)
-    from pathlib import Path
     assert len(documents) == 1 and Path(documents[0]["path"]).exists()
-    with sqlite3.connect(checkpoint) as connection:
+    with closing(sqlite3.connect(checkpoint)) as connection:
         assert connection.execute("SELECT COUNT(*) FROM checkpoints").fetchone()[0] == 0
+
+
+def test_delete_case_removes_everything_it_owns(client):
+    case, run = new_run(client)
+    other = create_case(client)
+    completed_report(case, run)
+    folder = Path(db.documents(case)[0]["path"]).parent
+    assert client.delete(f"/cases/{case}").status_code == 200
+    assert [c["id"] for c in client.get("/cases").json()] == [other]
+    assert not folder.exists()
+    for table in ("documents", "analyses", "reports", "tasks"):
+        assert db.rows("SELECT * FROM " + table) == []
+
+
+def test_report_keeps_customer_edits_beside_the_immutable_package(client):
+    case, run = new_run(client)
+    completed_report(case, run)
+    report = client.get("/reports/report").json()
+    assert report["customer_draft"] is None and report["completed_actions"] == []
+    assert "withheld_explanation" not in report["findings"][0]
+    assert client.get("/reports/report", headers=REVIEWER).json()["findings"][0]["withheld_explanation"] == "unverified wording"
+    assert client.put("/reports/report/draft", json={"text": "My edited letter"}).status_code == 200
+    assert client.put("/reports/report/checklist", json={"completed": ["r1", "r1"]}).status_code == 200
+    report = client.get("/reports/report").json()
+    assert report["customer_draft"] == "My edited letter" and report["completed_actions"] == ["r1"]
+    assert report["response_draft"] == "Dear Claims Team"
+    with zipfile.ZipFile(io.BytesIO(client.get("/reports/report/package").content)) as archive:
+        names = archive.namelist()
+        assert archive.read("response-letter.txt") == b"My edited letter"
+        assert "evidence-summary.txt" in names and "report.json" in names
+        assert any(name.startswith("attachments/01-v1-") for name in names)
+        assert "unverified wording" not in archive.read("report.json").decode()
+    client.put("/reports/report/draft", json={"text": "  "})
+    assert client.get("/reports/report").json()["customer_draft"] is None
+
+
+def test_review_queue_and_decision_history(client):
+    case, run = new_run(client)
+    task = completed_report(case, run)
+    queue = client.get("/review-queue", headers=REVIEWER).json()
+    assert [(item["task_id"], item["current"], item["decisions"]) for item in queue] == [(task, True, [])]
+    saved = client.post(f"/tasks/{task}/review", headers=REVIEWER, json={"decision": "request_evidence", "rationale": "The final summary is still missing", "reviewer_name": "Asha"})
+    assert saved.status_code == 201 and saved.json()["reviewer"] == "Asha"
+    assert client.get("/review-queue", headers=REVIEWER).json()[0]["decisions"][0]["decision"] == "request_evidence"
+    assert [r["request_id"] for r in client.get("/reports/report/reviews").json()] == ["r1"]
+    assert len(client.get(f"/tasks/{task}/reviews").json()) == 1
+
+
+def test_sample_scenarios_create_ready_cases(client):
+    samples = client.get("/samples").json()
+    assert len(samples) == 5 and all("expected" not in s for s in samples)
+    created = client.post("/samples/" + samples[0]["key"]).json()
+    assert created["sample_key"] == samples[0]["key"] and created["document_count"] == samples[0]["document_count"]
+    assert client.post(f"/cases/{created['id']}/sample-follow-up").json() == {"added": 2}
+    assert client.post(f"/cases/{created['id']}/sample-follow-up").json() == {"added": 0}
+    documents = client.get(f"/cases/{created['id']}/documents").json()
+    assert sorted((d["filename"], d["version"]) for d in documents if d["kind"] == "clinical") == [
+        ("02-discharge-summary.txt", 1), ("03-final-discharge-summary.txt", 2), ("04-laboratory-report.txt", 1)]
+    assert client.post("/samples/unknown").status_code == 404
+    assert client.post(f"/cases/{create_case(client)}/sample-follow-up").status_code == 404
+
+
+def test_sample_receipt_hash_matches_the_bill_it_acknowledges(client):
+    created = client.post("/samples/02-repeated-request").json()
+    documents = {d["kind"]: d for d in client.get(f"/cases/{created['id']}/documents").json()}
+    receipt = client.get(f"/cases/{created['id']}/documents/{documents['receipt']['id']}").json()
+    assert documents["bill"]["sha256"] in receipt["pages"][0]["text"]
 
 
 def test_history_is_owner_scoped(client):
@@ -152,8 +279,9 @@ def test_history_is_owner_scoped(client):
     with db.transaction() as connection:
         db.execute(connection, "UPDATE cases SET owner='other' WHERE id=:id", id=case)
         db.execute(connection, "UPDATE analyses SET owner='other' WHERE id=:id", id=run["id"])
-    assert client.get(f"/cases/{case}/analyses", headers=AUTH).status_code == 404
-    assert client.delete(f"/analyses/{run['id']}", headers=AUTH).status_code == 404
+    assert client.get(f"/cases/{case}/analyses").status_code == 404
+    assert client.delete(f"/analyses/{run['id']}").status_code == 404
+    assert client.get("/cases").json() == []
 
 
 def test_event_stream_subscribes_before_snapshot_and_closes(client, monkeypatch):
@@ -186,6 +314,6 @@ def test_event_stream_subscribes_before_snapshot_and_closes(client, monkeypatch)
 def test_delete_cors_preflight(client):
     response = client.options('/analyses/example', headers={
         'Origin': 'http://localhost:5173', 'Access-Control-Request-Method': 'DELETE',
-        'Access-Control-Request-Headers': 'authorization',
+        'Access-Control-Request-Headers': 'content-type',
     })
     assert response.status_code == 200
