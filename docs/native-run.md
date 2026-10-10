@@ -36,7 +36,7 @@ execution policy rather than changing the system-wide policy:
 ## Connect ChatGPT
 
 1. Open http://127.0.0.1:5173. The workspace opens directly.
-2. Choose AI engine in the sidebar and click Continue with ChatGPT. Allow the browser popup.
+2. Choose Connect AI to analyse in the top bar and click Continue with ChatGPT. Allow the browser popup.
 3. Sign in, select the intended workspace, and authorize the requested plan-use
    permissions. The first registration uses this application's own name.
 4. On the completion page, close the sign-in tab and return to the workspace.
@@ -114,8 +114,9 @@ timeouts. Process isolation is pending.
 
 This enqueues a non-medical probe to confirm that a native Windows worker can
 reach Redis and the OS credential backend. It never returns credentials.
-Tesseract must be installed on the host for scanned PDFs; native-text PDFs and
-UTF-8 text fixtures do not require OCR.
+Scanned PDF pages and pictures inside Word files are read by the connected model.
+Tesseract is only a fallback for when ChatGPT is not connected; PDFs with a text
+layer, Word files and UTF-8 text need neither.
 
 Official references:
 - https://developers.openai.com/siwc/token-sharing-open-source/sign-in

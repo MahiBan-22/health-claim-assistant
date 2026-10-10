@@ -22,12 +22,19 @@ export type Document = {
   claim_references?: string[];
   in_use?: boolean;
   is_latest?: boolean;
+  /** Pages whose text was read from an image by the AI model, not copied from the file. */
+  ai_pages?: number;
+  /** Pictures inside the file that nothing could read. */
+  unread_images?: number;
 };
 export type Page = {
   page: number;
   text: string;
+  /** native = copied from the file's text; luna = read by the AI model; ocr = read by Tesseract. */
   method?: string;
   readable?: boolean;
+  blank?: boolean;
+  unread_images?: number;
 };
 export type Run = {
   id: string;
@@ -171,6 +178,9 @@ export type Uploaded = {
   filename: string;
   version: number;
   claim_references: string[];
+  extraction_status?: string;
+  ai_pages?: number;
+  unread_images?: number;
 };
 
 export type FlowTool = {
@@ -244,20 +254,4 @@ export type Workflow = {
     corrections: number;
     documents: number;
   };
-};
-export type Integrations = {
-  neatlogs: {
-    sdk_version: string | null;
-    enabled: boolean;
-    key_configured: boolean;
-    exporting: boolean;
-    endpoint: string;
-    workflow_name: string;
-    analyses_traced: number;
-    steps_recorded: number;
-  };
-  entire: { enabled: boolean; configured: boolean };
-  cfo_ai: { export: string; months: number; analyses: number };
-  stack: Record<string, string | null>;
-  model: string;
 };

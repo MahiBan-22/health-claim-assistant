@@ -40,7 +40,7 @@ ENUMS = {
     "claim.service": {"api", "worker", "diagnostic"},
     "claim.stream_state": {"started", "completed", "interrupted"},
     "claim.correction_reason": {"citation", "targeted_search", "unsupported_statements"},
-    "claim.role": {"request planner", "Evidence Agent", "Policy Agent", "Verifier Agent"},
+    "claim.role": {"request planner", "Evidence Agent", "Policy Agent", "Verifier Agent", "Document Reader"},
     "claim.http_method": {"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
     "neatlogs.llm.provider": {"openai"},
     "neatlogs.llm.model_name": {"gpt-6-luna"},

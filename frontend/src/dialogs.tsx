@@ -9,6 +9,7 @@ import {
   LoaderCircle,
   Plus,
   RotateCcw,
+  ScanEye,
   Sparkles,
   TriangleAlert,
   X,
@@ -130,10 +131,12 @@ export function UploadDialog({
   );
   const add = (files: FileList | null) => {
     const accepted = [...(files ?? [])].filter((file) =>
-      /\.(pdf|txt)$/i.test(file.name),
+      /\.(pdf|docx|txt)$/i.test(file.name),
     );
     if (files?.length && accepted.length < files.length)
-      app.fail("Only PDF and plain-text files can be added.");
+      app.fail(
+        "Only PDF, Word (.docx) and plain-text files can be added. Save an older .doc file as .docx first.",
+      );
     setPending((current) => [
       ...current,
       ...accepted.map((file) => ({ file, kind: "auto", replaces: "" })),
@@ -204,8 +207,8 @@ export function UploadDialog({
         </span>
         <strong className="text-sm">Drop files here, or choose them</strong>
         <span className="mt-1 text-xs text-ink-soft">
-          PDF or plain text. Start with the insurer's letter, then add
-          everything you sent or hold.
+          PDF, Word (.docx) or plain text, including scanned pages. Start with
+          the insurer's letter, then add everything you sent or hold.
         </span>
         <button
           type="button"
@@ -218,7 +221,7 @@ export function UploadDialog({
           ref={input}
           type="file"
           aria-label="Choose files"
-          accept=".pdf,.txt"
+          accept=".pdf,.docx,.txt"
           multiple
           className="sr-only"
           onClick={(e) => e.stopPropagation()}
@@ -228,6 +231,31 @@ export function UploadDialog({
           }}
         />
       </div>
+      <p
+        className={
+          "mt-3 flex items-start gap-2 rounded-xl border p-3 text-xs leading-relaxed " +
+          (app.ready
+            ? "border-line bg-white text-ink-soft"
+            : "border-amber-200 bg-amber-50 text-amber-950")
+        }
+      >
+        {app.ready ? (
+          <Sparkles
+            size={15}
+            className="mt-0.5 shrink-0 text-violet-600"
+            aria-hidden="true"
+          />
+        ) : (
+          <TriangleAlert
+            size={15}
+            className="mt-0.5 shrink-0 text-amber-500"
+            aria-hidden="true"
+          />
+        )}
+        {app.ready
+          ? "Typed text is copied exactly. Scanned pages and pictures inside Word files are read by the AI model, a few seconds per page, and labelled so you can compare them with the original."
+          : "The AI engine is not connected, so scanned pages and pictures inside Word files cannot be read yet. Typed text in PDF and Word files is still copied exactly."}
+      </p>
       {pending.length > 0 && (
         <ul className="mt-5 max-h-[32vh] space-y-2.5 overflow-y-auto pr-1">
           {pending.map((entry, index) => (
@@ -398,7 +426,7 @@ export function DocumentDialog({
             <span className="chip border-line bg-white text-ink-soft">
               Version {document.version}
             </span>
-            <ExtractionChip value={document.extraction_status} />
+            <ExtractionChip document={document} />
             {document.pages.length > 1 && (
               <span className="ml-auto flex items-center gap-1">
                 {document.pages.map((p) => (
@@ -426,6 +454,19 @@ export function DocumentDialog({
               Read the page before relying on the finding.
             </p>
           )}
+          {((shown.method === "luna" && !shown.blank) ||
+            !!shown.unread_images) && (
+            <p className="mb-3 flex items-start gap-2 rounded-xl border border-sky-200 bg-sky-50 p-3 text-sm text-sky-950">
+              <ScanEye
+                size={16}
+                className="mt-0.5 shrink-0 text-sky-500"
+                aria-hidden="true"
+              />
+              {shown.method === "luna"
+                ? "Read by AI: text on this page came from a scan or picture and was transcribed by the AI model. Check names, dates and amounts against the original."
+                : "A picture on this page could not be read, so its text is missing here. Connect the AI engine and add the file again."}
+            </p>
+          )}
           <pre className="prose-doc max-h-[52vh] overflow-y-auto">
             {parts.length === 3 ? (
               <>
@@ -433,8 +474,14 @@ export function DocumentDialog({
                 <mark ref={marked}>{parts[1]}</mark>
                 {parts[2]}
               </>
+            ) : shown.blank ? (
+              shown.method === "luna" ? (
+                "The AI model found no text on this scanned page. Open the original if you expected some."
+              ) : (
+                "This page is blank in the original."
+              )
             ) : shown.readable === false ? (
-              "This page could not be read. Upload a clearer copy."
+              "This page is a scan or picture that could not be read. Connect the AI engine and add the file again, or add a clearer copy."
             ) : (
               parts[0]
             )}
@@ -597,12 +644,16 @@ export function SystemDialog({ system }: { system: SystemStatus | null }) {
             : "Connect ChatGPT to run analyses.",
         },
         {
-          name: "Scanned PDF reading (OCR)",
-          ok: system.ocr,
+          name: "Scans and pictures",
+          ok: app.ready || system.ocr,
           optional: true,
-          detail: system.ocr
-            ? "Tesseract is installed."
-            : "Optional. Install Tesseract to read scanned PDFs; text PDFs work without it.",
+          detail: app.ready
+            ? "Scanned pages and pictures in Word files are read by " +
+              system.model +
+              "."
+            : system.ocr
+              ? "Read by Tesseract on this computer. Connect ChatGPT for the AI model to read them instead."
+              : "Connect ChatGPT to read scanned pages and pictures. Typed text in PDF and Word files works without it.",
         },
       ]
     : [];

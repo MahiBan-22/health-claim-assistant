@@ -16,7 +16,9 @@ SCHEMA = [
     "CREATE TABLE IF NOT EXISTS report_notes (report_id TEXT NOT NULL, key TEXT NOT NULL, value TEXT NOT NULL, updated_at TEXT NOT NULL, PRIMARY KEY (report_id, key))",
     # One row per workflow step of an analysis (metadata only), for the workflow view and usage totals.
     "CREATE TABLE IF NOT EXISTS run_events (id TEXT PRIMARY KEY, run_id TEXT NOT NULL, parent_id TEXT, name TEXT NOT NULL, kind TEXT NOT NULL, started_at REAL NOT NULL, duration_ms REAL, attributes TEXT NOT NULL)",
-    "CREATE INDEX IF NOT EXISTS run_events_by_run ON run_events (run_id, started_at)"
+    "CREATE INDEX IF NOT EXISTS run_events_by_run ON run_events (run_id, started_at)",
+    # Questions left through the landing page's contact form.
+    "CREATE TABLE IF NOT EXISTS inquiries (id TEXT PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL, created_at TEXT NOT NULL)"
 ]
 
 RUN_CLEANUP = [

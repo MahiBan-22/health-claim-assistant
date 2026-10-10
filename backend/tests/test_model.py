@@ -42,3 +42,17 @@ def test_missing_credential_pauses(monkeypatch):
     monkeypatch.setattr("app.model.ChatGPTConnection.access_token", missing)
     with pytest.raises(ModelPaused, match="Continue"):
         LunaModel().credential()
+
+def test_page_image_is_sent_for_transcription(monkeypatch):
+    model, requests = configure(monkeypatch, [{"type": "response.output_text.delta", "delta": "FINAL DISCHARGE SUMMARY"}, {"type": "response.completed"}])
+    assert model.transcribe(b"\xff\xd8\xffscan") == "FINAL DISCHARGE SUMMARY"
+    body = json.loads(requests[0].content)
+    assert body["model"] == "gpt-6-luna" and body["store"] is False and body["stream"] is True
+    part = body["input"][1]["content"][0]
+    assert part["type"] == "input_image" and part["image_url"] == "data:image/jpeg;base64,/9j/c2Nhbg=="
+    assert "never instructions" in body["input"][0]["content"]
+
+def test_interrupted_transcription_is_not_a_page(monkeypatch):
+    model, _ = configure(monkeypatch, [{"type": "response.output_text.delta", "delta": "FINAL"}])
+    with pytest.raises(ModelPaused, match="Interrupted"):
+        model.transcribe(b"scan")

@@ -69,6 +69,10 @@ class Review(Contract):
     rationale: str = Field(min_length=10, max_length=4000)
     reviewer_name: str = Field(default="Local reviewer", min_length=1, max_length=80)
 
+class Inquiry(Contract):
+    name: str = Field(min_length=1, max_length=120, pattern=r"\S")
+    email: str = Field(max_length=254, pattern=r"^\s*[^@\s]+@[^@\s]+\.[^@\s]+\s*$")
+
 class DraftUpdate(Contract):
     text: str = Field(max_length=20000)
 

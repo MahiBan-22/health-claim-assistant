@@ -15,9 +15,12 @@ Read the [architecture review and verification record](docs/architecture-review.
   findings and the review queue. Three core screens: claim workspace, evidence report, review desk.
 - **No login.** The workspace opens directly. The API answers only its own interface on the
   loopback address (see "Local access boundary").
-- Drag-and-drop upload with suggested categories, versioned replacements, SHA256 hashes,
-  immutable originals, PDF text/OCR extraction, a dated timeline and a page viewer that
-  highlights the cited passage.
+- Drag-and-drop upload of PDF, Word (.docx) and text files with suggested categories,
+  versioned replacements, SHA256 hashes, immutable originals, a dated timeline and a page
+  viewer that highlights the cited passage.
+- Page text from every format: a text layer is copied exactly; scanned PDF pages and pictures
+  inside Word files are read by the connected model and labelled "Read by AI" (see
+  "Reading documents").
 - FastAPI APIs, SQLite metadata and LangGraph checkpoints with planner, Policy, Evidence and
   Verifier roles. Policy wording is read before the customer answer is written.
 - One corrective cycle per request, deterministic citation and identifier checks, statement-level
@@ -26,10 +29,16 @@ Read the [architecture review and verification record](docs/architecture-review.
 - Response package: editable reply letter, next-step checklist, attachment manifest and a ZIP
   with the letter, a readable summary, the structured report and the cited originals.
 - Five synthetic walkthrough scenarios that can be opened from the home screen.
+- A standalone landing page (no workspace sidebar) with its own top bar, a four-step journey,
+  a diagram of how each document format is read, an interactive four-agent infographic,
+  workspace impact metrics and a footer contact form (name and email, saved locally).
+  Latest reports count once per claim; built-in sample references are grouped separately.
+  An adjustable manual-review baseline estimates potential time saved using complete recorded
+  run timings. It is explicitly an estimate, not measured labor savings or settled claims.
 - An Analysis workflow page that draws every analysis as a flowchart from its recorded steps
   (planner, policy, evidence, verifier, correction loops, packaging), live while it runs.
-- A home-screen section showing how neatlogs, Entire and cfo.ai are used, read from the
-  installation, with a monthly usage export for the cfo.ai business model.
+- A monthly usage export for the cfo.ai business model (`GET /business/metrics.csv`) and a
+  report of how neatlogs, Entire and cfo.ai are used here (`GET /system/integrations`).
 - OAuth-only model adapter configured to **gpt-6-luna** for every application LLM call.
 
 **This is a working localhost build, not a production service.** Chroma/BGE retrieval, selective
@@ -40,8 +49,9 @@ replay is never used as live inference.
 
 ## Local setup
 
-Use Python 3.12, Node 22+, Redis, and Tesseract for scanned PDFs (optional). Native Windows
-uses RQ SimpleWorker with timer-based timeouts; Linux uses the standard RQ worker.
+Use Python 3.12, Node 22+ and Redis. Tesseract is optional: it reads scans only when ChatGPT
+is not connected. Native Windows uses RQ SimpleWorker with timer-based timeouts; Linux uses
+the standard RQ worker.
 
 The quickest path on Windows is `.\scripts\start-native.ps1`, described in
 [docs/native-run.md](docs/native-run.md). Manual steps:
@@ -66,8 +76,8 @@ The quickest path on Windows is `.\scripts\start-native.ps1`, described in
 
    Set PYTHONPATH=backend for the worker, or install the package as in step 3.
 6. In frontend/, run npm ci, then npm run dev -- --host 127.0.0.1.
-7. Open http://127.0.0.1:5173. Choose **AI engine** in the sidebar and continue with ChatGPT
-   once. API docs are at http://127.0.0.1:8000/docs.
+7. Open http://127.0.0.1:5173. Choose **Connect AI to analyse** in the top bar and continue
+   with ChatGPT once. API docs are at http://127.0.0.1:8000/docs.
 
 Relative DATA_DIR paths are resolved from the command directory: API and worker must share
 the same working directory and storage location. The header pill and the System status panel
@@ -130,6 +140,23 @@ browser credentials, or Codex authentication files.
 Tokens are obtained through the supported loopback OAuth flow and stored in the OS credential
 vault. The native API and worker must run under the same OS user. See docs/native-run.md.
 
+## Reading documents
+
+| Upload | How its text is obtained |
+| --- | --- |
+| Text file | Decoded as UTF-8; a form feed starts a new page. |
+| PDF page with a text layer | Copied exactly with PyMuPDF. The model is not called. |
+| PDF page without one (a scan) | Rendered to an image and transcribed by the model, four pages at a time. |
+| Word (.docx) | Typed text and tables are read from the file itself. Pages follow Word's last saved layout or explicit page breaks; a file with neither is cut into page-sized parts. Letterhead and footer text is kept once, on page 1. |
+| Picture inside a Word file | Transcribed by the model and placed where the picture sits. |
+
+Pages read by the model carry `method: "luna"` and are labelled "Read by AI" in the document
+list and the page viewer. The reader is told to copy, not interpret: it writes `[illegible]`
+instead of guessing, marks `[signature]`, `[stamp]` and `[seal]`, and reports a page with no
+text as blank. Without a ChatGPT connection the upload still succeeds: Tesseract is tried if
+installed, otherwise a scan is stored as unreadable and an unread picture is counted on its
+page. Add the file again after connecting. Older `.doc` files and image files are refused.
+
 Official references:
 - https://developers.openai.com/api/docs/models/gpt-6-luna
 - https://developers.openai.com/siwc/token-sharing-open-source/models-and-inference
@@ -155,10 +182,10 @@ Chrome against intercepted fictional API responses.
 | Method | Path | Purpose |
 | --- | --- | --- |
 | GET | /health | Liveness and model configuration |
-| GET | /system/status | Database, queue, worker and OCR availability, with counts |
+| GET | /system/status | Database, queue, worker and Tesseract availability, with counts |
 | GET / POST | /cases | List (with counts) / create claims |
 | PATCH / DELETE | /cases/{id} | Correct the title or claim reference / delete a claim and everything it owns |
-| GET / POST | /cases/{id}/documents | Inventory / upload; kind=auto suggests a category; logical_id creates a new version |
+| GET / POST | /cases/{id}/documents | Inventory / upload a PDF, .docx or text file; kind=auto suggests a category; logical_id creates a new version |
 | GET / PATCH / DELETE | /cases/{id}/documents/{document} | Read pages / correct the category / remove an unused document |
 | GET | /cases/{id}/documents/{document}/pages/{page} | Extracted source page |
 | GET | /cases/{id}/documents/{document}/original | Download the immutable original |
@@ -170,6 +197,7 @@ Chrome against intercepted fictional API responses.
 | GET | /analyses/{run}/workflow | The analysis as it ran: attempts, steps, timings, tool and model calls |
 | GET | /system/integrations | How neatlogs, Entire, cfo.ai and the core stack are used here |
 | GET | /business/metrics.csv | Monthly usage totals for the cfo.ai model (no claim content) |
+| GET | /business/impact | Latest-report impact totals, with customer and sample activity separated |
 | GET | /reports/{report} | Immutable report plus the customer's saved edits |
 | PUT | /reports/{report}/draft, /checklist | Save the edited letter / ticked next steps |
 | GET | /reports/{report}/reviews | Review decisions for the report |
@@ -177,6 +205,7 @@ Chrome against intercepted fictional API responses.
 | GET | /review-queue | Findings that need a person (reviewer mode) |
 | POST / GET | /tasks/{run}:{request}/review(s) | Record a decision (reviewer mode) / read history |
 | GET / POST | /samples, /samples/{key} | List / create a sample claim |
+| POST / GET | /inquiries | Save a name and email left through the landing page / list them |
 | POST | /cases/{id}/sample-follow-up | Add a sample's second-round documents |
 
 ## Step record
@@ -189,7 +218,12 @@ first time their workflow is opened.
 
 ## Current limits
 
-Extraction happens in the API's thread pool, not an extraction queue. Retrieval is keyword
+Extraction happens in the API's thread pool, not an extraction queue, so an upload of many
+scanned pages holds its request open while they are read. A transcription is not checked
+against the page image by a second pass: citations are verified word for word against the
+transcribed text, so compare "Read by AI" pages with the original. Footnotes, comments and
+text inside charts in Word files are not read. Contact-form entries are stored in the local
+database only; nothing sends or forwards them. Retrieval is keyword
 based. Each analysis snapshots the newest version of every document; older versions are kept
 and reports can be compared, but one analysis does not read superseded versions. New uploads
 need a new analysis; earlier reports are retained. Reviews append an audit event and do not

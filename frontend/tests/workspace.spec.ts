@@ -33,7 +33,10 @@ const docs = [
     "Insurer clarification request.pdf",
     "insurer_communication",
   ),
-  document("doc-2", "Hospital discharge summary.pdf", "clinical"),
+  // A scan: its one page was read from the image by the model.
+  document("doc-2", "Hospital discharge summary.pdf", "clinical", {
+    ai_pages: 1,
+  }),
   document("doc-3", "Itemized hospital bill.pdf", "bill", { version: 2 }),
 ];
 const runs = [
@@ -216,22 +219,6 @@ const workflow = {
     documents: 3,
   },
 };
-const integrations = {
-  neatlogs: {
-    sdk_version: "1.4.26",
-    enabled: true,
-    key_configured: true,
-    exporting: true,
-    endpoint: "https://ingest.neatlogs.com",
-    workflow_name: "claim-evidence-assistant",
-    analyses_traced: 12,
-    steps_recorded: 809,
-  },
-  entire: { enabled: true, configured: true },
-  cfo_ai: { export: "/business/metrics.csv", months: 1, analyses: 17 },
-  stack: { langgraph: "1.2.14", fastapi: "0.143.0" },
-  model: "gpt-6-luna",
-};
 
 async function workspace(page: Page) {
   const saved: { method: string; path: string; body: unknown }[] = [];
@@ -239,8 +226,15 @@ async function workspace(page: Page) {
     const request = route.request();
     const path = new URL(request.url()).pathname;
     const method = request.method();
-    if (method !== "GET")
-      saved.push({ method, path, body: request.postDataJSON?.() ?? null });
+    if (method !== "GET") {
+      let sent: unknown = null;
+      try {
+        sent = request.postDataJSON?.() ?? null;
+      } catch {
+        /* A file upload is multipart, not JSON. */
+      }
+      saved.push({ method, path, body: sent });
+    }
     if (path.endsWith("/analysis-events"))
       return route.fulfill({
         contentType: "text/event-stream",
@@ -249,7 +243,6 @@ async function workspace(page: Page) {
     let body: unknown = {};
     if (path === "/cases") body = [claim];
     else if (path === "/samples") body = [];
-    else if (path === "/system/integrations") body = integrations;
     else if (path === "/analyses/run-2/workflow") body = workflow;
     else if (path === "/system/status")
       body = {
@@ -271,6 +264,17 @@ async function workspace(page: Page) {
       };
     else if (path === "/auth/chatgpt/models")
       body = { selected_model_available: true };
+    else if (path.endsWith("/documents") && method === "POST")
+      body = {
+        id: "doc-new",
+        kind: "clinical",
+        filename: "upload",
+        version: 1,
+        claim_references: [],
+        extraction_status: "extracted",
+        ai_pages: 1,
+        unread_images: 0,
+      };
     else if (path.endsWith("/documents")) body = docs;
     else if (path.endsWith("/documents/doc-2"))
       body = {
@@ -279,6 +283,7 @@ async function workspace(page: Page) {
           {
             page: 1,
             text: "Hospital: Example\nDocument designation: PROVISIONAL DISCHARGE SUMMARY\nSignature status: unsigned",
+            method: "luna",
             readable: true,
           },
         ],
@@ -323,7 +328,7 @@ test("opens without a login and walks from documents to a verified reply", async
   await page.goto("/");
   await expect(
     page.getByRole("heading", {
-      name: "Know exactly what your insurer is asking for.",
+      name: "Less paperwork. More clarity.",
     }),
   ).toBeVisible();
   await expect(page.getByLabel(/access token/i)).toHaveCount(0);
@@ -334,6 +339,7 @@ test("opens without a login and walks from documents to a verified reply", async
   await page.getByRole("button", { name: "Open claim" }).click();
   await expect(page.getByRole("heading", { name: claim.title })).toBeVisible();
   await expect(page.getByRole("grid")).toBeVisible();
+  await expect(page.getByText("Read by AI", { exact: true })).toHaveCount(1);
   await page.screenshot({
     path: "test-results/workspace-desktop.png",
     fullPage: true,
@@ -372,6 +378,9 @@ test("opens without a login and walks from documents to a verified reply", async
   await expect(page.getByRole("dialog").locator("mark")).toHaveText(
     "PROVISIONAL DISCHARGE SUMMARY",
   );
+  await expect(
+    page.getByRole("dialog").getByText(/Read by AI: text on this page/),
+  ).toBeVisible();
   await page.keyboard.press("Escape");
   await expect(page.getByRole("dialog")).toHaveCount(0);
   await expect(
@@ -472,7 +481,44 @@ test("mobile layout fits the screen and dialogs manage focus", async ({
   await expect(page.getByText("Itemized bill", { exact: true })).toHaveCount(0);
 });
 
-test("workflow chart shows each step and the landing page names the required tools", async ({
+test("documents are added as PDF, Word or text, and an older .doc is refused", async ({
+  page,
+}) => {
+  const saved = await workspace(page);
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.goto("/#/case/case-1");
+  await page.getByRole("button", { name: "Add documents" }).first().click();
+  const dialog = page.getByRole("dialog", { name: "Add documents" });
+  await expect(
+    dialog.getByText(/pictures inside Word files are read by the AI model/),
+  ).toBeVisible();
+  const file = (name: string) => ({
+    name,
+    mimeType: "application/octet-stream",
+    buffer: Buffer.from("fictional"),
+  });
+  await dialog
+    .getByLabel("Choose files")
+    .setInputFiles([file("letter.docx"), file("scan.PDF"), file("old.doc")]);
+  await expect(
+    page.getByRole("alert").filter({ hasText: "Save an older .doc file" }),
+  ).toBeVisible();
+  await expect(dialog.getByText("letter.docx")).toBeVisible();
+  await expect(dialog.getByText("old.doc")).toHaveCount(0);
+  await dialog.getByRole("button", { name: "Add 2 documents" }).click();
+  await expect(
+    page.getByRole("status").filter({
+      hasText:
+        "2 documents added and sorted into categories. 2 scanned pages were read by AI",
+    }),
+  ).toBeVisible();
+  expect(saved.map((call) => call.method + " " + call.path)).toEqual([
+    "POST /cases/case-1/documents",
+    "POST /cases/case-1/documents",
+  ]);
+});
+
+test("workflow chart shows each step, and the landing page stands without the sidebar", async ({
   page,
 }) => {
   const errors: string[] = [];
@@ -518,17 +564,21 @@ test("workflow chart shows each step and the landing page names the required too
     page.getByRole("heading", { name: "How this analysis ran" }),
   ).toBeVisible();
 
-  await page.goto("/#/");
-  const tools = page.getByRole("region", {
-    name: "How the required tools are used",
-  });
-  for (const name of ["neatlogs", "Entire", "cfo.ai"])
-    await expect(tools.getByRole("heading", { name })).toBeVisible();
-  await expect(tools.getByText("Exporting traces")).toBeVisible();
-  await expect(tools.getByText("Session tracking enabled")).toBeVisible();
+  // The sidebar's "My claims" opens the landing page at the claim list, and the sidebar stays behind.
+  const sidebar = page.getByRole("navigation", { name: "Main navigation" });
+  await sidebar.getByRole("button", { name: "My claims" }).click();
   await expect(
-    tools.getByRole("button", { name: "Download metrics CSV" }),
-  ).toBeVisible();
-  await expect(tools.getByText("1.2.14")).toBeVisible();
+    page.getByRole("heading", { name: "Pick up where you left off" }),
+  ).toBeInViewport();
+  await expect(sidebar).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Open menu" })).toHaveCount(0);
+  for (const removed of [
+    "How the required tools are used",
+    "What the agents demonstrate",
+    "Core stack",
+  ])
+    await expect(page.getByText(removed)).toHaveCount(0);
+  await page.getByRole("button", { name: "Open claim" }).click();
+  await expect(sidebar).toBeVisible();
   expect(errors).toEqual([]);
 });

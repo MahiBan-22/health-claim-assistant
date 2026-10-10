@@ -26,7 +26,7 @@ therefore starts with a vertical slice and tracks remaining capabilities explici
 | Identity | Localhost alone is not authorization. Production needs tenant membership, reviewer assignment, and auditable identities. | No login for the single local owner. The API serves only allowed Host names and its own UI origin, which blocks other websites and DNS rebinding. Reviewer mode is a workspace role with a recorded name, not an identity. Never suitable as a multi-user identity system. |
 | Input versions | Graph retries must consume the same inputs even after uploads. | Each run freezes document IDs; replacements create immutable new rows and files. |
 | Request revisions | A new insurer communication may supersede an old request rather than add to it. | Explicit replacement via logical document ID. New runs select newest versions. Request-level diffing is pending. |
-| Extraction | OCR success does not prove text accuracy; a mixed PDF can contain readable and unreadable pages. | Native text then page OCR, page mapping and explicit unreadable state; visual OCR validation is pending. |
+| Extraction | OCR success does not prove text accuracy; a mixed PDF can contain readable and unreadable pages. | Text layer copied exactly; pages and pictures without one are transcribed by the model (Tesseract as fallback) and labelled, with page mapping and explicit unreadable and blank states. A second-pass check of a transcription against its image is pending. |
 | Retrieval | Search absence means absence in the searched records, not absence in reality. Keyword recall is limited. | Case-bound keyword search and inventory visibility; the verifier receives the inventory so a missing document is recorded as not found instead of looping. BGE/Chroma integration remains pending. |
 | Final documents | Filename or keyword matching cannot establish signed/final content. | Evidence and verifier prompts inspect contents; semantic quality still needs labelled live evaluation. |
 | Receipts | Upload records do not prove insurer receipt; acknowledgements need document-version or event mapping. | Separate receipt references and deterministic receipt-type checks; semantic matching by verifier. Typed submission-event tables are pending. |
@@ -98,9 +98,9 @@ Three workflow changes came directly from running the scenarios:
 4. Add dependency invalidation so a new version recomputes only affected
    findings, and automated interruption tests across API, worker, checkpoint and
    report commit boundaries.
-5. Add prompt-injection/adversarial fixtures, a scanned-PDF fixture with
-   Tesseract installed, a deterministic member-identity check and arithmetic
-   checks for stated totals.
+5. Add prompt-injection/adversarial fixtures, a second-pass check of model
+   transcriptions against the page image, a deterministic member-identity check
+   and arithmetic checks for stated totals.
 6. Extend labelled failure/fix evaluation and detection tuning; record an Entire
    development checkpoint; export aggregate business metrics for cfo.ai and
    isolate Crustdata research behind its own authorized workflow.
@@ -139,7 +139,7 @@ Checked against the acceptance table in Health_Claim_Architecture.md:
 | Final versus provisional document | Demonstrated live (scenario 1) and unit-tested. |
 | Upload without acknowledgement | Demonstrated live (scenarios 1 and 5: submission never claimed); receipt confirmed only with a matching acknowledgement (scenario 2). |
 | Policy amendment | Demonstrated live (scenario 3: endorsement E-02 and the schedule surfaced against the co-payment deduction). |
-| Unreadable scan | Not demonstrated. Tesseract is not installed on this machine; the status panel says so. Unreadable pages are reported explicitly in unit tests. |
+| Scanned document | Reading demonstrated live on 11 October 2026 with the synthetic scan in fixtures/formats (see its README). A scan nothing can read is stored as unreadable; that path is unit-tested. |
 | Wrong case or member | Unit-tested (cross-case reads refused); a mismatched claim reference is flagged at upload and in the report. Member-identity mismatch was noticed by the model in scenario 5 but has no deterministic check. |
 | Unsupported citation | Unit-tested: one correction, then the conclusion is blocked. |
 | Worker interruption | Demonstrated live: all processes were stopped mid-analysis; the run resumed from its checkpoint with one report. The worker also restarted itself after two Redis timeouts. |
@@ -147,8 +147,9 @@ Checked against the acceptance table in Health_Claim_Architecture.md:
 | Conflicting invoice | Demonstrated live (scenario 5): both originals kept, routed to review, no accusation. |
 | Prompt injection in document | Not demonstrated. The model is told documents are untrusted; no adversarial fixture exists yet. |
 
-OCR on scanned PDFs, an adversarial fixture, other partner integrations and
-statistical accuracy remain unverified.
+Reading accuracy on real-world scans (the live check used clean synthetic pages),
+an adversarial fixture, other partner integrations and statistical accuracy
+remain unverified.
 
 ## Official model connection references
 

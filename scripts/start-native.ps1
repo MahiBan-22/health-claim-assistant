@@ -59,5 +59,5 @@ try {
     if (-not $ready) { throw "Native API failed to start. Inspect logs/api-console-error.log." }
     if ($workerProcess.HasExited -or $uiProcess.HasExited) { throw "A native service stopped during startup. Inspect logs/ console-error files." }
     Write-Host "Native workspace ready: http://127.0.0.1:5173"
-    Write-Host "No login is needed. Choose AI engine in the sidebar to connect ChatGPT; tokens stay in this Windows user's credential store."
+    Write-Host "No login is needed. Choose Connect AI to analyse in the top bar to connect ChatGPT; tokens stay in this Windows user's credential store."
 } finally { Pop-Location }

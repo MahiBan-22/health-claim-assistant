@@ -102,6 +102,7 @@ export function App() {
     () => stored("claimwise.reviewerName") ?? "",
   );
   const toastId = useRef(0);
+  const anchor = useRef<string | null>(null);
   const statuses = useRef(new Map<string, string>());
   const signIn = useRef<{ started: number; popup: Window | null }>({
     started: 0,
@@ -153,6 +154,10 @@ export function App() {
     setMenu(false);
     window.scrollTo({ top: 0 });
   }, []);
+  const openClaims = useCallback(() => {
+    anchor.current = "your-claims";
+    go({ view: "home" });
+  }, [go]);
 
   useEffect(() => {
     const onHash = () => setRoute(parseRoute(location.hash));
@@ -161,8 +166,11 @@ export function App() {
   }, []);
 
   useEffect(() => {
-    // Each screen opens at its top, after it has rendered.
-    window.scrollTo(0, 0);
+    // Each screen opens at its top, after it has rendered; "My claims" opens the landing page at the list.
+    const target = anchor.current && document.getElementById(anchor.current);
+    anchor.current = null;
+    if (target) target.scrollIntoView();
+    else window.scrollTo(0, 0);
   }, [route.view, caseId, reportId]);
 
   const loadCases = useCallback(
@@ -397,31 +405,35 @@ export function App() {
         label: "Service offline",
         tone: "bg-rose-100 text-rose-900",
         dot: "bg-critical",
+        connect: false,
       }
     : system && (!system.redis || !system.workers)
       ? {
           label: "Analysis engine offline",
           tone: "bg-amber-100 text-amber-950",
           dot: "bg-warn",
+          connect: false,
         }
       : !ready
         ? {
             label: "Connect AI to analyse",
             tone: "bg-sky-100 text-sky-900",
             dot: "bg-sky-500",
+            connect: true,
           }
         : {
             label: "All systems ready",
             tone: "bg-emerald-100 text-emerald-900",
             dot: "bg-good animate-pulse-ring",
+            connect: false,
           };
   const nav = useMemo(
     () => [
       {
         label: "My claims",
         icon: House,
-        active: route.view === "home",
-        run: () => go({ view: "home" }),
+        active: false,
+        run: openClaims,
         enabled: true,
       },
       {
@@ -464,375 +476,377 @@ export function App() {
 
   return (
     <AppContext.Provider value={context}>
-      <div className="min-h-screen lg:grid lg:grid-cols-[17rem_minmax(0,1fr)]">
-        <a
-          href="#main"
-          className="sr-only focus:not-sr-only focus:fixed focus:top-3 focus:left-3 focus:z-50 focus:rounded-lg focus:bg-white focus:px-3 focus:py-2"
-        >
-          Skip to content
-        </a>
-        {menu && (
-          <div
-            className="fixed inset-0 z-30 bg-ink/50 lg:hidden"
-            onClick={() => setMenu(false)}
-            aria-hidden="true"
-          />
-        )}
-        <aside
-          className={
-            "fixed inset-y-0 left-0 z-40 flex w-68 flex-col overflow-y-auto bg-gradient-to-b from-indigo-950 via-violet-950 to-fuchsia-950 p-5 text-white transition-transform lg:sticky lg:top-0 lg:h-screen lg:w-auto lg:translate-x-0 " +
-            (menu ? "translate-x-0" : "-translate-x-full")
+      {route.view === "home" ? (
+        <Home
+          cases={cases}
+          health={health}
+          samples={samples}
+          openSample={(sample) => {
+            const existing = cases?.find((c) => c.sample_key === sample.key);
+            if (existing) return go({ view: "case", caseId: existing.id });
+            void act(async () => {
+              const created = await send<ClaimCase>(
+                "/samples/" + sample.key,
+                "POST",
+              );
+              upsertCase(created);
+              go({ view: "case", caseId: created.id });
+              notify(
+                "Sample loaded with " +
+                  created.document_count +
+                  " fictional documents. Run the analysis to see the result.",
+              );
+            });
+          }}
+          remove={(target) =>
+            confirmThen(
+              "Delete this claim?",
+              <>
+                This removes <strong>{target.title}</strong> with its documents,
+                analyses and reports from this computer. It cannot be undone.
+              </>,
+              "Delete claim",
+              async () => {
+                await send("/cases/" + target.id, "DELETE");
+                await loadCases();
+                notify("Claim deleted.");
+              },
+            )
           }
-        >
-          <div className="flex items-center justify-between">
-            <button
-              className="flex items-center gap-2.5 text-xl font-bold tracking-tight"
-              onClick={() => go({ view: "home" })}
-            >
-              <span className="grid size-10 place-items-center rounded-2xl bg-gradient-to-br from-fuchsia-500 to-orange-400 shadow-lg shadow-fuchsia-500/40">
-                <ShieldCheck size={22} aria-hidden="true" />
-              </span>
-              claimwise
-            </button>
-            <button
-              className="grid size-9 place-items-center rounded-lg hover:bg-white/10 lg:hidden"
-              aria-label="Close menu"
+        />
+      ) : (
+        <div className="min-h-screen lg:grid lg:grid-cols-[17rem_minmax(0,1fr)]">
+          <a
+            href="#main"
+            className="sr-only focus:not-sr-only focus:fixed focus:top-3 focus:left-3 focus:z-50 focus:rounded-lg focus:bg-white focus:px-3 focus:py-2"
+          >
+            Skip to content
+          </a>
+          {menu && (
+            <div
+              className="fixed inset-0 z-30 bg-ink/50 lg:hidden"
               onClick={() => setMenu(false)}
-            >
-              <X size={18} />
-            </button>
-          </div>
-
-          <nav aria-label="Main navigation" className="mt-8 space-y-1">
-            {nav.map(({ label, icon: Icon, active, run, enabled }) => (
+              aria-hidden="true"
+            />
+          )}
+          <aside
+            className={
+              "fixed inset-y-0 left-0 z-40 flex w-68 flex-col overflow-y-auto bg-gradient-to-b from-indigo-950 via-violet-950 to-fuchsia-950 p-5 text-white transition-transform lg:sticky lg:top-0 lg:h-screen lg:w-auto lg:translate-x-0 " +
+              (menu ? "translate-x-0" : "-translate-x-full")
+            }
+          >
+            <div className="flex items-center justify-between">
               <button
-                key={label}
-                aria-current={active ? "page" : undefined}
-                disabled={!enabled}
-                className={
-                  "flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-semibold transition " +
-                  (active
-                    ? "bg-white/15 text-white shadow-inner"
-                    : "text-white/70 hover:bg-white/10 hover:text-white")
-                }
-                onClick={run}
-              >
-                <Icon size={18} aria-hidden="true" />
-                {label}
-              </button>
-            ))}
-          </nav>
-
-          <div className="mt-8 min-h-24 flex-1 overflow-y-auto">
-            <div className="mb-2 flex items-center justify-between px-3">
-              <p className="text-[11px] font-bold tracking-[0.14em] text-white/50 uppercase">
-                Your claims
-              </p>
-              <button
-                className="grid size-7 place-items-center rounded-lg text-white/70 hover:bg-white/10 hover:text-white"
-                aria-label="Start a new claim"
-                onClick={() => openDialog({ type: "case" })}
-              >
-                <Plus size={16} />
-              </button>
-            </div>
-            <ul className="space-y-0.5">
-              {(cases ?? []).map((c) => (
-                <li key={c.id}>
-                  <button
-                    className={
-                      "flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left text-sm transition " +
-                      (c.id === caseId
-                        ? "bg-white/15 font-semibold text-white"
-                        : "text-white/70 hover:bg-white/10 hover:text-white")
-                    }
-                    onClick={() => go({ view: "case", caseId: c.id })}
-                  >
-                    <span
-                      className={
-                        "size-2 shrink-0 rounded-full " +
-                        (c.id === caseId ? "bg-fuchsia-400" : "bg-white/30")
-                      }
-                      aria-hidden="true"
-                    />
-                    <span className="truncate">{c.title}</span>
-                  </button>
-                </li>
-              ))}
-              {cases?.length === 0 && (
-                <li className="px-3 text-xs text-white/50">
-                  Your claims will appear here.
-                </li>
-              )}
-            </ul>
-          </div>
-
-          <div className="mt-6 space-y-2">
-            <button
-              className="flex w-full items-center gap-3 rounded-2xl border border-white/15 bg-white/10 p-3 text-left hover:bg-white/15"
-              onClick={() => openDialog({ type: "connection" })}
-            >
-              <span
-                className={
-                  "grid size-9 shrink-0 place-items-center rounded-xl " +
-                  (ready ? "bg-emerald-400 text-emerald-950" : "bg-white/20")
-                }
-              >
-                <Sparkles size={17} aria-hidden="true" />
-              </span>
-              <span className="min-w-0 text-sm font-semibold">
-                AI engine
-                <small className="block truncate text-xs font-normal text-white/70">
-                  {ready
-                    ? "Connected"
-                    : connection?.connected
-                      ? "Model unavailable"
-                      : "Connect ChatGPT"}
-                </small>
-              </span>
-            </button>
-            <label className="flex cursor-pointer items-center gap-3 rounded-2xl px-3 py-2 text-sm text-white/80 hover:bg-white/10">
-              <UserRoundCheck size={17} aria-hidden="true" />
-              <span className="flex-1">Reviewer mode</span>
-              <input
-                type="checkbox"
-                role="switch"
-                aria-label="Reviewer mode"
-                className="peer sr-only"
-                checked={reviewer}
-                onChange={(e) => setReviewer(e.target.checked)}
-              />
-              <span className="relative h-5 w-9 rounded-full bg-white/25 transition peer-checked:bg-fuchsia-500 peer-focus-visible:ring-2 peer-focus-visible:ring-white after:absolute after:top-0.5 after:left-0.5 after:size-4 after:rounded-full after:bg-white after:transition peer-checked:after:translate-x-4" />
-            </label>
-          </div>
-        </aside>
-
-        <div className="min-w-0">
-          <header className="sticky top-0 z-20 flex items-center gap-3 border-b border-line bg-white/80 px-4 py-3 backdrop-blur-xl sm:px-8">
-            <button
-              className="icon-btn lg:hidden"
-              aria-label="Open menu"
-              onClick={() => setMenu(true)}
-            >
-              <Menu size={20} />
-            </button>
-            <nav
-              aria-label="Breadcrumb"
-              className="flex min-w-0 items-center gap-1.5 text-sm text-ink-soft"
-            >
-              <button
-                className="hover:text-violet-700"
+                className="flex items-center gap-2.5 text-xl font-bold tracking-tight"
                 onClick={() => go({ view: "home" })}
               >
-                My claims
-              </button>
-              {item && (
-                <>
-                  <ChevronRight
-                    size={14}
-                    className="shrink-0"
-                    aria-hidden="true"
-                  />
-                  <button
-                    className={
-                      "truncate hover:text-violet-700 " +
-                      (route.view === "case" ? "font-semibold text-ink" : "")
-                    }
-                    onClick={() => go({ view: "case", caseId: item.id })}
-                  >
-                    {item.title}
-                  </button>
-                </>
-              )}
-              {route.view === "report" && (
-                <>
-                  <ChevronRight
-                    size={14}
-                    className="shrink-0"
-                    aria-hidden="true"
-                  />
-                  <span className="font-semibold whitespace-nowrap text-ink">
-                    Report
-                  </span>
-                </>
-              )}
-              {route.view === "workflow" && (
-                <>
-                  <ChevronRight
-                    size={14}
-                    className="shrink-0"
-                    aria-hidden="true"
-                  />
-                  <span className="font-semibold whitespace-nowrap text-ink">
-                    Workflow
-                  </span>
-                </>
-              )}
-              {route.view === "review" && (
-                <>
-                  <ChevronRight
-                    size={14}
-                    className="shrink-0"
-                    aria-hidden="true"
-                  />
-                  <span className="font-semibold text-ink">Review desk</span>
-                </>
-              )}
-            </nav>
-            <div className="ml-auto flex items-center gap-2">
-              {reviewer && (
-                <span className="chip hidden border-fuchsia-200 bg-fuchsia-50 text-fuchsia-900 sm:inline-flex">
-                  Reviewer mode
+                <span className="grid size-10 place-items-center rounded-2xl bg-gradient-to-br from-fuchsia-500 to-orange-400 shadow-lg shadow-fuchsia-500/40">
+                  <ShieldCheck size={22} aria-hidden="true" />
                 </span>
-              )}
-              <button
-                className="btn btn-ghost btn-sm"
-                aria-label="Terms explained"
-                onClick={() => setDialog({ type: "glossary" })}
-              >
-                <BookOpenText size={16} />
-                <span className="hidden sm:inline">Terms explained</span>
+                claimwise
               </button>
               <button
-                className={
-                  "inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-xs font-semibold whitespace-nowrap " +
-                  health.tone
-                }
-                onClick={() => setDialog({ type: "system" })}
-                aria-label={"System status: " + health.label}
+                className="grid size-9 place-items-center rounded-lg hover:bg-white/10 lg:hidden"
+                aria-label="Close menu"
+                onClick={() => setMenu(false)}
               >
-                <span
-                  className={"size-2 rounded-full " + health.dot}
-                  aria-hidden="true"
-                />
-                <span className="hidden sm:inline">{health.label}</span>
-                <Activity size={14} className="sm:hidden" aria-hidden="true" />
+                <X size={18} />
               </button>
             </div>
-          </header>
 
-          <main id="main" className="mx-auto max-w-[88rem] p-4 sm:p-8">
-            {!cases ? (
-              <Spinner label="Opening your workspace..." />
-            ) : route.view === "home" ? (
-              <Home
-                cases={cases}
-                samples={samples}
-                openSample={(sample) => {
-                  const existing = cases.find(
-                    (c) => c.sample_key === sample.key,
-                  );
-                  if (existing)
-                    return go({ view: "case", caseId: existing.id });
-                  void act(async () => {
-                    const created = await send<ClaimCase>(
-                      "/samples/" + sample.key,
-                      "POST",
-                    );
-                    upsertCase(created);
-                    go({ view: "case", caseId: created.id });
-                    notify(
-                      "Sample loaded with " +
-                        created.document_count +
-                        " fictional documents. Run the analysis to see the result.",
-                    );
-                  });
-                }}
-                remove={(target) =>
-                  confirmThen(
-                    "Delete this claim?",
-                    <>
-                      This removes <strong>{target.title}</strong> with its
-                      documents, analyses and reports from this computer. It
-                      cannot be undone.
-                    </>,
-                    "Delete claim",
-                    async () => {
-                      await send("/cases/" + target.id, "DELETE");
-                      await loadCases();
-                      notify("Claim deleted.");
-                    },
-                  )
-                }
-              />
-            ) : route.view === "review" ? (
-              <ReviewDesk
-                setReviewer={setReviewer}
-                setReviewerName={(value) => {
-                  setReviewerNameState(value);
-                  store("claimwise.reviewerName", value);
-                }}
-              />
-            ) : !item ? (
-              <Spinner label="Opening the claim..." />
-            ) : route.view === "workflow" ? (
-              <WorkflowView
-                item={item}
-                runId={route.runId}
-                liveStatus={runs.find((run) => run.id === route.runId)?.status}
-              />
-            ) : route.view === "report" ? (
-              report ? (
-                <ReportView
-                  item={item}
-                  report={report}
-                  runs={runs}
-                  onReport={setReport}
+            <nav aria-label="Main navigation" className="mt-8 space-y-1">
+              {nav.map(({ label, icon: Icon, active, run, enabled }) => (
+                <button
+                  key={label}
+                  aria-current={active ? "page" : undefined}
+                  disabled={!enabled}
+                  className={
+                    "flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-semibold transition " +
+                    (active
+                      ? "bg-white/15 text-white shadow-inner"
+                      : "text-white/70 hover:bg-white/10 hover:text-white")
+                  }
+                  onClick={run}
+                >
+                  <Icon size={18} aria-hidden="true" />
+                  {label}
+                </button>
+              ))}
+            </nav>
+
+            <div className="mt-8 min-h-24 flex-1 overflow-y-auto">
+              <div className="mb-2 flex items-center justify-between px-3">
+                <p className="text-[11px] font-bold tracking-[0.14em] text-white/50 uppercase">
+                  Your claims
+                </p>
+                <button
+                  className="grid size-7 place-items-center rounded-lg text-white/70 hover:bg-white/10 hover:text-white"
+                  aria-label="Start a new claim"
+                  onClick={() => openDialog({ type: "case" })}
+                >
+                  <Plus size={16} />
+                </button>
+              </div>
+              <ul className="space-y-0.5">
+                {(cases ?? []).map((c) => (
+                  <li key={c.id}>
+                    <button
+                      className={
+                        "flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left text-sm transition " +
+                        (c.id === caseId
+                          ? "bg-white/15 font-semibold text-white"
+                          : "text-white/70 hover:bg-white/10 hover:text-white")
+                      }
+                      onClick={() => go({ view: "case", caseId: c.id })}
+                    >
+                      <span
+                        className={
+                          "size-2 shrink-0 rounded-full " +
+                          (c.id === caseId ? "bg-fuchsia-400" : "bg-white/30")
+                        }
+                        aria-hidden="true"
+                      />
+                      <span className="truncate">{c.title}</span>
+                    </button>
+                  </li>
+                ))}
+                {cases?.length === 0 && (
+                  <li className="px-3 text-xs text-white/50">
+                    Your claims will appear here.
+                  </li>
+                )}
+              </ul>
+            </div>
+
+            <div className="mt-6 space-y-2">
+              <button
+                className="flex w-full items-center gap-3 rounded-2xl border border-white/15 bg-white/10 p-3 text-left hover:bg-white/15"
+                onClick={() => openDialog({ type: "connection" })}
+              >
+                <span
+                  className={
+                    "grid size-9 shrink-0 place-items-center rounded-xl " +
+                    (ready ? "bg-emerald-400 text-emerald-950" : "bg-white/20")
+                  }
+                >
+                  <Sparkles size={17} aria-hidden="true" />
+                </span>
+                <span className="min-w-0 text-sm font-semibold">
+                  AI engine
+                  <small className="block truncate text-xs font-normal text-white/70">
+                    {ready
+                      ? "Connected"
+                      : connection?.connected
+                        ? "Model unavailable"
+                        : "Connect ChatGPT"}
+                  </small>
+                </span>
+              </button>
+              <label className="flex cursor-pointer items-center gap-3 rounded-2xl px-3 py-2 text-sm text-white/80 hover:bg-white/10">
+                <UserRoundCheck size={17} aria-hidden="true" />
+                <span className="flex-1">Reviewer mode</span>
+                <input
+                  type="checkbox"
+                  role="switch"
+                  aria-label="Reviewer mode"
+                  className="peer sr-only"
+                  checked={reviewer}
+                  onChange={(e) => setReviewer(e.target.checked)}
                 />
+                <span className="relative h-5 w-9 rounded-full bg-white/25 transition peer-checked:bg-fuchsia-500 peer-focus-visible:ring-2 peer-focus-visible:ring-white after:absolute after:top-0.5 after:left-0.5 after:size-4 after:rounded-full after:bg-white after:transition peer-checked:after:translate-x-4" />
+              </label>
+            </div>
+          </aside>
+
+          <div className="min-w-0">
+            <header className="sticky top-0 z-20 flex items-center gap-3 border-b border-line bg-white/80 px-4 py-3 backdrop-blur-xl sm:px-8">
+              <button
+                className="icon-btn lg:hidden"
+                aria-label="Open menu"
+                onClick={() => setMenu(true)}
+              >
+                <Menu size={20} />
+              </button>
+              <nav
+                aria-label="Breadcrumb"
+                className="flex min-w-0 items-center gap-1.5 text-sm text-ink-soft"
+              >
+                <button className="hover:text-violet-700" onClick={openClaims}>
+                  My claims
+                </button>
+                {item && (
+                  <>
+                    <ChevronRight
+                      size={14}
+                      className="shrink-0"
+                      aria-hidden="true"
+                    />
+                    <button
+                      className={
+                        "truncate hover:text-violet-700 " +
+                        (route.view === "case" ? "font-semibold text-ink" : "")
+                      }
+                      onClick={() => go({ view: "case", caseId: item.id })}
+                    >
+                      {item.title}
+                    </button>
+                  </>
+                )}
+                {route.view === "report" && (
+                  <>
+                    <ChevronRight
+                      size={14}
+                      className="shrink-0"
+                      aria-hidden="true"
+                    />
+                    <span className="font-semibold whitespace-nowrap text-ink">
+                      Report
+                    </span>
+                  </>
+                )}
+                {route.view === "workflow" && (
+                  <>
+                    <ChevronRight
+                      size={14}
+                      className="shrink-0"
+                      aria-hidden="true"
+                    />
+                    <span className="font-semibold whitespace-nowrap text-ink">
+                      Workflow
+                    </span>
+                  </>
+                )}
+                {route.view === "review" && (
+                  <>
+                    <ChevronRight
+                      size={14}
+                      className="shrink-0"
+                      aria-hidden="true"
+                    />
+                    <span className="font-semibold text-ink">Review desk</span>
+                  </>
+                )}
+              </nav>
+              <div className="ml-auto flex items-center gap-2">
+                {reviewer && (
+                  <span className="chip hidden border-fuchsia-200 bg-fuchsia-50 text-fuchsia-900 sm:inline-flex">
+                    Reviewer mode
+                  </span>
+                )}
+                <button
+                  className="btn btn-ghost btn-sm"
+                  aria-label="Terms explained"
+                  onClick={() => setDialog({ type: "glossary" })}
+                >
+                  <BookOpenText size={16} />
+                  <span className="hidden sm:inline">Terms explained</span>
+                </button>
+                <button
+                  className={
+                    "inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-xs font-semibold whitespace-nowrap " +
+                    health.tone
+                  }
+                  onClick={() => setDialog({ type: "system" })}
+                  aria-label={"System status: " + health.label}
+                >
+                  <span
+                    className={"size-2 rounded-full " + health.dot}
+                    aria-hidden="true"
+                  />
+                  <span className="hidden sm:inline">{health.label}</span>
+                  <Activity
+                    size={14}
+                    className="sm:hidden"
+                    aria-hidden="true"
+                  />
+                </button>
+              </div>
+            </header>
+
+            <main id="main" className="mx-auto max-w-[88rem] p-4 sm:p-8">
+              {!cases ? (
+                <Spinner label="Opening your workspace..." />
+              ) : route.view === "review" ? (
+                <ReviewDesk
+                  setReviewer={setReviewer}
+                  setReviewerName={(value) => {
+                    setReviewerNameState(value);
+                    store("claimwise.reviewerName", value);
+                  }}
+                />
+              ) : !item ? (
+                <Spinner label="Opening the claim..." />
+              ) : route.view === "workflow" ? (
+                <WorkflowView
+                  item={item}
+                  runId={route.runId}
+                  liveStatus={
+                    runs.find((run) => run.id === route.runId)?.status
+                  }
+                />
+              ) : route.view === "report" ? (
+                report ? (
+                  <ReportView
+                    item={item}
+                    report={report}
+                    runs={runs}
+                    onReport={setReport}
+                  />
+                ) : (
+                  <Spinner label="Opening the report..." />
+                )
               ) : (
-                <Spinner label="Opening the report..." />
-              )
-            ) : (
-              <CaseView
-                item={item}
-                documents={documents}
-                runs={runs}
-                live={live}
-                reload={reload}
-                onCase={upsertCase}
-                removeRun={(run, number) =>
-                  confirmThen(
-                    "Delete analysis " + number + "?",
-                    "Its report and review history are removed. Your uploaded documents stay.",
-                    "Delete analysis",
-                    async () => {
-                      await send("/analyses/" + run.id, "DELETE");
-                      await reload();
-                      notify("Analysis deleted. Your documents were kept.");
-                    },
-                  )
-                }
-                removeDocument={(document) =>
-                  confirmThen(
-                    "Remove this document?",
-                    <>
-                      <strong>{document.filename}</strong> (
-                      {kindLabel(document.kind).toLowerCase()}, version{" "}
-                      {document.version}) will be deleted from this claim.
-                    </>,
-                    "Remove document",
-                    async () => {
-                      await send(
-                        "/cases/" + item.id + "/documents/" + document.id,
-                        "DELETE",
-                      );
-                      await reload();
-                      notify("Document removed.");
-                    },
-                  )
-                }
-              />
-            )}
-            <footer className="mt-12 flex flex-wrap justify-between gap-2 border-t border-line pt-5 text-xs text-muted">
-              <span>Claimwise · Runs on this computer</span>
-              <span>
-                Explains your evidence. The insurer's decision stays with the
-                insurer.
-              </span>
-            </footer>
-          </main>
+                <CaseView
+                  item={item}
+                  documents={documents}
+                  runs={runs}
+                  live={live}
+                  reload={reload}
+                  onCase={upsertCase}
+                  removeRun={(run, number) =>
+                    confirmThen(
+                      "Delete analysis " + number + "?",
+                      "Its report and review history are removed. Your uploaded documents stay.",
+                      "Delete analysis",
+                      async () => {
+                        await send("/analyses/" + run.id, "DELETE");
+                        await reload();
+                        notify("Analysis deleted. Your documents were kept.");
+                      },
+                    )
+                  }
+                  removeDocument={(document) =>
+                    confirmThen(
+                      "Remove this document?",
+                      <>
+                        <strong>{document.filename}</strong> (
+                        {kindLabel(document.kind).toLowerCase()}, version{" "}
+                        {document.version}) will be deleted from this claim.
+                      </>,
+                      "Remove document",
+                      async () => {
+                        await send(
+                          "/cases/" + item.id + "/documents/" + document.id,
+                          "DELETE",
+                        );
+                        await reload();
+                        notify("Document removed.");
+                      },
+                    )
+                  }
+                />
+              )}
+              <footer className="mt-12 flex flex-wrap justify-between gap-2 border-t border-line pt-5 text-xs text-muted">
+                <span>Claimwise · Runs on this computer</span>
+                <span>
+                  Explains your evidence. The insurer's decision stays with the
+                  insurer.
+                </span>
+              </footer>
+            </main>
+          </div>
         </div>
-      </div>
+      )}
 
       {dialog?.type === "case" && (
         <CaseDialog
@@ -858,14 +872,32 @@ export function App() {
           documents={documents}
           onDone={(added: Uploaded[]) => {
             void reload().catch(() => undefined);
+            const read = added.reduce((n, d) => n + (d.ai_pages ?? 0), 0);
             notify(
-              added.length === 1
+              (added.length === 1
                 ? added[0].filename +
-                    " added as " +
-                    kindLabel(added[0].kind).toLowerCase() +
-                    "."
-                : added.length + " documents added and sorted into categories.",
+                  " added as " +
+                  kindLabel(added[0].kind).toLowerCase() +
+                  "."
+                : added.length +
+                  " documents added and sorted into categories.") +
+                (read
+                  ? " " +
+                    read +
+                    (read === 1 ? " scanned page was" : " scanned pages were") +
+                    " read by AI: compare with the original."
+                  : ""),
             );
+            const missed = added.filter(
+              (d) => d.extraction_status === "unreadable" || d.unread_images,
+            );
+            if (missed.length)
+              fail(
+                (missed.length === 1
+                  ? missed[0].filename + " has"
+                  : missed.length + " documents have") +
+                  " scanned pages or pictures that could not be read. Connect the AI engine and add the file again, or add a clearer copy.",
+              );
           }}
         />
       )}

@@ -6,6 +6,7 @@ import pytest
 from fastapi.testclient import TestClient
 from app import db
 from app.config import Settings
+from app.extraction import extract
 from app.main import app
 
 REVIEWER = {"X-Workspace-Role": "reviewer"}
@@ -39,6 +40,47 @@ def test_workspace_opens_without_a_login(client):
     status = client.get("/system/status").json()
     assert status["database"] and status["workers"] == 1 and status["counts"]["cases"] == 0
 
+
+def test_impact_empty_workspace(client):
+    metrics = client.get("/business/impact").json()
+    assert set(metrics) == {"customer", "samples"}
+    assert metrics["customer"]["cases_analyzed"] == 0
+    assert metrics["customer"]["report_seconds"] == []
+
+
+def test_impact_latest_report_samples_verification_and_timings(client, monkeypatch):
+    monkeypatch.setattr("app.main.sample_keys", lambda: {"SAMPLE": {}})
+    case = create_case(client)
+    sample = create_case(client, "SAMPLE")
+    supported = {"evidence_status": "satisfied", "verification": {"decision": "supported"},
+                 "evidence_refs": [{"page": 1}], "submission_status": "confirmed_by_receipt"}
+    review = {**supported, "review_required": True}
+    blocked = {**supported, "blocked": True}
+    gap = {"evidence_status": "partially_satisfied", "policy_refs": [{"page": 1}]}
+    def insert(run_id, case_id, findings, stamp, durations):
+        with db.transaction() as connection:
+            db.execute(connection, "INSERT INTO analyses VALUES (:run,:case,'local',:run,'completed','[]',:run,NULL,:stamp)", run=run_id, case=case_id, stamp=stamp)
+            db.execute(connection, "INSERT INTO reports VALUES (:run,:run,:case,:body,:stamp)", run=run_id, case=case_id, stamp=stamp, body=json.dumps({"findings": findings}))
+            for index, duration in enumerate(durations):
+                db.execute(connection, "INSERT INTO run_events VALUES (:id,:run,NULL,'claim.analysis','WORKFLOW',1,:duration,'{}')", id=f"{run_id}-{index}", run=run_id, duration=duration)
+    insert("old", case, [supported] * 12, "2026-10-01", [1000])
+    insert("latest", case, [supported, review, blocked, gap], "2026-10-02", [60000, 30000])
+    insert("sample", sample, [supported], "2026-10-02", [None, 20000])
+    result = client.get("/business/impact").json()
+    own = result["customer"]
+    assert own["cases_analyzed"] == 1 and own["points_checked"] == 4
+    assert own["supported_points"] == 1 and own["needs_review"] == 2
+    assert own["evidence_gaps"] == 1 and own["cited_points"] == 3
+    assert own["policy_points"] == 1
+    assert own["report_seconds"] == [90] and own["analysis_seconds"] == 90
+    assert result["samples"]["points_checked"] == 1
+    assert result["samples"]["timed_reports"] == 0
+    # Equal timestamps still choose the newly inserted report deterministically.
+    insert("newest", case, [gap], "2026-10-02", [])
+    newest = client.get("/business/impact").json()["customer"]
+    assert newest["points_checked"] == 1 and newest["supported_points"] == 0
+    assert newest["timed_reports"] == 0
+
 def test_requests_from_other_sites_are_refused(client):
     case = create_case(client)
     assert client.get("/cases", headers={"Origin": "https://untrusted.example"}).status_code == 403
@@ -66,6 +108,29 @@ def test_versions_and_originals_are_preserved(client):
     listed = client.get(f"/cases/{case}/documents").json()
     assert [(d["version"], d["is_latest"]) for d in listed] == [(1, False), (2, True)]
     assert "path" not in listed[0] and listed[0]["page_count"] == 1
+
+def test_word_and_scanned_pdf_uploads_report_how_they_were_read(client, monkeypatch):
+    from test_contracts import paragraph, pdf, picture, word
+    monkeypatch.setattr("app.main.extract", lambda data, name: extract(data, name, reader=lambda: lambda image: "Invoice number: INV-1\nItemized charges\nTotal billed 13,000.00"))
+    case = create_case(client)
+    letter = client.post(f"/cases/{case}/documents", files={"file": ("Letter.DOCX", word(paragraph("Dear customer, please supply the final discharge summary.")), "application/octet-stream")})
+    assert letter.status_code == 201 and letter.json()["kind"] == "insurer_communication"
+    assert (letter.json()["ai_pages"], letter.json()["unread_images"]) == (0, 0)
+    scan = client.post(f"/cases/{case}/documents", files={"file": ("scan.pdf", pdf(picture()), "application/pdf")}).json()
+    assert scan["kind"] == "bill" and scan["extraction_status"] == "extracted" and scan["ai_pages"] == 1
+    listed = {d["filename"]: d for d in client.get(f"/cases/{case}/documents").json()}
+    assert listed["scan.pdf"]["ai_pages"] == 1 and listed["Letter.DOCX"]["ai_pages"] == 0
+    assert client.get(f"/cases/{case}/documents/{scan['id']}/pages/1").json()["method"] == "luna"
+    assert client.get(f"/cases/{case}/documents/{letter.json()['id']}/original").content[:2] == b"PK"
+    refused = client.post(f"/cases/{case}/documents", files={"file": ("old.doc", b"x", "application/msword")})
+    assert refused.status_code == 422 and ".docx" in refused.json()["detail"]
+
+def test_inquiry_is_saved_and_validated(client):
+    assert client.post("/inquiries", json={"name": " Asha Rao ", "email": "asha@example.com"}).status_code == 201
+    for body in ({"name": "  ", "email": "asha@example.com"}, {"name": "Asha", "email": "not-an-email"}, {"name": "Asha"}):
+        assert client.post("/inquiries", json=body).status_code == 422
+    assert client.post("/inquiries", headers={"Origin": "https://untrusted.example"}, json={"name": "x", "email": "x@example.com"}).status_code == 403
+    assert [(item["name"], item["email"]) for item in client.get("/inquiries").json()] == [("Asha Rao", "asha@example.com")]
 
 def test_document_cannot_be_read_through_other_case(client):
     case, other = create_case(client), create_case(client)

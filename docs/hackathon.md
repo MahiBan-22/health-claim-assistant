@@ -4,8 +4,9 @@ Checked against https://neatlogs.com/hackathon on 10 October 2026. The page stat
 "Your project must use neatlogs, Entire and cfo.ai." LiteLLM, AWS and Crustdata are
 offered as optional resources.
 
-The same information is shown in the app, at the bottom of the home screen, read live
-from the installation (`GET /system/integrations`).
+The same information is served live from the installation by `GET /system/integrations`.
+The home-screen section that displayed it was removed from the landing page on
+11 October 2026.
 
 ## Required tools
 
@@ -13,7 +14,7 @@ from the installation (`GET /system/integrations`).
 | --- | --- | --- | --- |
 | neatlogs | "Trace every agent run." | Integrated and exporting. | Python SDK 1.4.26 in the API and the worker. One trace per analysis attempt: planner, policy, evidence and verifier agent spans, every tool call, every model call with token counts. A masking function allow-lists step names, counts and opaque IDs before export. See [observability.md](observability.md). |
 | Entire | "Give your coding agent repository context." | Enabled in this repository on 10 October 2026. | The repository's `origin` is hosted on Entire. `entire enable` installed hooks for Claude Code and Codex and git hooks; checkpoints are stored as git refs and sync to `origin` on push. Settings are in `.entire/settings.json`. |
-| cfo.ai | "Plan the business with cfo.ai" and include the plan in the submission. | Export bridge built; **the plan itself still has to be created in cfo.ai**. | `GET /business/metrics.csv` (button on the home screen) exports monthly totals measured by the app. Nothing in this repository can create the plan: it needs a cfo.ai account. |
+| cfo.ai | "Plan the business with cfo.ai" and include the plan in the submission. | Export bridge built; **the plan itself still has to be created in cfo.ai**. | `GET /business/metrics.csv` exports monthly totals measured by the app; open http://127.0.0.1:8000/business/metrics.csv to download it (the home-screen button went with that section). Nothing in this repository can create the plan: it needs a cfo.ai account. |
 
 Optional resources not used: Crustdata, LiteLLM, AWS. The model is gpt-6-luna through
 Sign in with ChatGPT.

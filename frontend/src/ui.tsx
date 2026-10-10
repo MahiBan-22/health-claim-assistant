@@ -5,6 +5,7 @@ import {
   Clock3,
   EyeOff,
   LoaderCircle,
+  ScanEye,
   SearchX,
   TriangleAlert,
   X,
@@ -23,6 +24,7 @@ import {
   KINDS,
   type Tone,
 } from "./lib";
+import type { Document } from "./types";
 
 export const TONE_ICON: Record<Tone, LucideIcon> = {
   good: CircleCheck,
@@ -39,13 +41,15 @@ export function Chip({
   label,
   title,
   spin,
+  icon,
 }: {
   tone: Tone;
   label: string;
   title?: string;
   spin?: boolean;
+  icon?: LucideIcon;
 }) {
-  const Icon = spin ? LoaderCircle : TONE_ICON[tone];
+  const Icon = spin ? LoaderCircle : (icon ?? TONE_ICON[tone]);
   return (
     <span className={"chip " + TONE[tone].chip} title={title}>
       <Icon
@@ -84,8 +88,36 @@ export const RunChip = ({ value }: { value: string }) => {
     <Chip tone={meta.tone} label={meta.label} spin={value === "running"} />
   );
 };
-export const ExtractionChip = ({ value }: { value: string }) => {
-  const meta = lookup(EXTRACTION, value);
+/** Whether a document's text could be read, and whether any of it came from a scan or picture. */
+export const ExtractionChip = ({
+  document,
+}: {
+  document: Pick<Document, "extraction_status" | "ai_pages" | "unread_images">;
+}) => {
+  const meta = lookup(EXTRACTION, document.extraction_status);
+  if (document.extraction_status === "unreadable")
+    return <Chip tone={meta.tone} label={meta.label} />;
+  if (document.unread_images)
+    return (
+      <Chip
+        tone="warn"
+        label="Picture unread"
+        title="A picture in this file could not be read. Connect the AI engine and add the file again."
+      />
+    );
+  if (document.ai_pages)
+    return (
+      <Chip
+        tone="info"
+        icon={ScanEye}
+        label="Read by AI"
+        title={
+          document.ai_pages +
+          (document.ai_pages === 1 ? " page was" : " pages were") +
+          " read from a scan or picture by the AI model. Compare with the original."
+        }
+      />
+    );
   return <Chip tone={meta.tone} label={meta.label} />;
 };
 export const DecisionChip = ({ value }: { value: string }) => {

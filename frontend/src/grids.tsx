@@ -107,9 +107,9 @@ const documentColumns: ColDef<Document>[] = [
   {
     field: "extraction_status",
     headerName: "Text",
-    width: 120,
-    cellRenderer: ({ value }: CustomCellRendererProps<Document, string>) =>
-      value ? <ExtractionChip value={value} /> : null,
+    width: 136,
+    cellRenderer: ({ data }: CustomCellRendererProps<Document, string>) =>
+      data && <ExtractionChip document={data} />,
   },
   {
     field: "created_at",

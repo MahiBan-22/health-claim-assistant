@@ -17,7 +17,7 @@ from . import db, intake, trace_store
 from .config import settings
 from .extraction import extract
 from .jobs import enqueue, queue_status
-from .schemas import CaseCreate, CaseUpdate, ChecklistUpdate, DraftUpdate, Review
+from .schemas import CaseCreate, CaseUpdate, ChecklistUpdate, DraftUpdate, Inquiry, Review
 from .logging_setup import configure_logging, RequestLoggingMiddleware
 from .chatgpt_auth import ChatGPTConnection
 from .errors import ModelPaused
@@ -137,10 +137,15 @@ def case_views(user, case_id=None):
         record["sample_follow_up"] = sample.get("follow_up", {}).get("description") if sample else None
     return records
 
+def reading(pages):
+    """How much of a document was read from images rather than copied from its text layer."""
+    return {"ai_pages": sum(page.get("method") == "luna" for page in pages),
+            "unread_images": sum(page.get("unread_images", 0) for page in pages)}
+
 def document_view(document, used=frozenset(), latest=frozenset()):
     view = {k: v for k, v in document.items() if k not in {"path", "pages"}}
     view.update(page_count=len(document["pages"]), claim_references=document_references(document),
-                in_use=document["id"] in used, is_latest=document["id"] in latest)
+                in_use=document["id"] in used, is_latest=document["id"] in latest, **reading(document["pages"]))
     return view
 
 def store_document(case_id, data, filename, kind, logical_id=None):
@@ -150,12 +155,12 @@ def store_document(case_id, data, filename, kind, logical_id=None):
         raise HTTPException(422, "Document is empty")
     filename = Path((filename or "document.txt").replace("\\", "/")).name
     try:
-        # OCR is bounded; move extraction into a dedicated RQ job in the next milestone.
+        # Reading scans is bounded; move extraction into a dedicated RQ job in the next milestone.
         pages, status = extract(data, filename)
     except (ValueError, UnicodeError) as error:
         raise HTTPException(422, str(error)) from error
     except Exception as error:
-        raise HTTPException(422, "Document could not be extracted; supply a readable PDF or UTF-8 text file") from error
+        raise HTTPException(422, "Document could not be extracted; supply a readable PDF, Word (.docx) or UTF-8 text file") from error
     if kind == "auto":
         kind = intake.classify(filename, pages)
     document_id = db.uid()
@@ -181,7 +186,7 @@ def store_document(case_id, data, filename, kind, logical_id=None):
         path.unlink(missing_ok=True)
         raise
     return {"id": document_id, "logical_id": logical_id, "version": version, "kind": kind, "filename": filename, "sha256": digest,
-            "extraction_status": status, "claim_references": document_references({"pages": pages})}
+            "extraction_status": status, "claim_references": document_references({"pages": pages}), **reading(pages)}
 
 @app.get("/health")
 def health():
@@ -223,6 +228,13 @@ def integrations(user: User):
         "stack": {name: package_version(name) for name in ("langgraph", "fastapi", "pydantic", "sqlalchemy", "rq", "redis", "pymupdf", "httpx", "keyring")},
         "model": config.llm_model,
     }
+
+@app.get("/business/impact")
+def business_impact(user: User):
+    """Latest-report totals, with fictional sample claims counted separately."""
+    from .impact import summarize
+    return summarize(user["owner"], set(sample_keys()))
+
 
 @app.get("/business/metrics.csv")
 def business_metrics(user: User):
@@ -567,6 +579,18 @@ def add_sample_follow_up(case_id: str, user: User):
         store_document(case_id, data, document["file"], document["kind"], replaced)
         added += 1
     return {"added": added}
+
+@app.post("/inquiries", status_code=201)
+def create_inquiry(body: Inquiry, user: User):
+    """A question left through the landing page. Kept in this workspace's database; nothing is sent anywhere."""
+    with db.transaction() as connection:
+        db.execute(connection, "INSERT INTO inquiries VALUES (:id,:name,:email,:time)",
+                   id=db.uid(), name=body.name.strip(), email=body.email.strip(), time=db.now())
+    return {"saved": True}
+
+@app.get("/inquiries")
+def list_inquiries(user: User):
+    return db.rows("SELECT * FROM inquiries ORDER BY created_at DESC")
 
 @app.get("/auth/chatgpt/status")
 def chatgpt_status(user: User):
