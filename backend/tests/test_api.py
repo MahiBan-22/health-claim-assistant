@@ -16,6 +16,7 @@ def client(tmp_path, monkeypatch):
     config = Settings(neatlogs_enabled=False, data_dir=tmp_path, log_dir=tmp_path / "logs")
     monkeypatch.setattr("app.main.settings", lambda: config)
     monkeypatch.setattr(db, "settings", lambda: config)
+    monkeypatch.setattr("app.trace_store.settings", lambda: config)
     monkeypatch.setattr(db, "_engine", None)
     monkeypatch.setattr("app.main.enqueue", lambda run_id: None)
     monkeypatch.setattr("app.main.queue_status", lambda: {"redis": True, "workers": 1, "queued": 0})
@@ -317,3 +318,29 @@ def test_delete_cors_preflight(client):
         'Access-Control-Request-Headers': 'content-type',
     })
     assert response.status_code == 200
+
+
+def test_workflow_integrations_and_business_metrics(client):
+    case, run = new_run(client)
+    empty = client.get(f"/analyses/{run['id']}/workflow").json()
+    assert empty["recorded"] is False and empty["attempts"] == [] and empty["run"]["status"] == "queued" and empty["totals"]["documents"] == 1
+    with db.transaction() as connection:
+        db.execute(connection, "INSERT INTO run_events VALUES ('root',:run,NULL,'claim.analysis','WORKFLOW',1000.0,500.0,'{}')", run=run["id"])
+        db.execute(connection, "INSERT INTO run_events VALUES ('plan',:run,'root','plan','AGENT',1000.1,200.0,:attributes)", run=run["id"], attributes=json.dumps({"claim.result_count": 2}))
+    view = client.get(f"/analyses/{run['id']}/workflow").json()
+    assert view["recorded"] and view["attempts"][0]["plan"]["facts"] == {"results": 2}
+    assert client.get("/analyses/unknown/workflow").status_code == 404
+
+    tools = client.get("/system/integrations").json()
+    assert set(tools) == {"neatlogs", "entire", "cfo_ai", "stack", "model"}
+    assert tools["neatlogs"]["analyses_traced"] == 1 and tools["neatlogs"]["exporting"] is False and tools["stack"]["langgraph"]
+    assert "api_key" not in json.dumps(tools).lower()
+
+    metrics = client.get("/business/metrics.csv")
+    assert metrics.headers["content-type"].startswith("text/csv")
+    header, *_, row = metrics.text.strip().splitlines()  # the newest month is last
+    assert header.startswith("month,claims_created,documents_uploaded,analyses_started") and row.split(",")[1:4] == ["1", "1", "1"]
+
+    completed_report(case, run)
+    assert client.delete(f"/analyses/{run['id']}").status_code == 200
+    assert db.rows("SELECT * FROM run_events") == []

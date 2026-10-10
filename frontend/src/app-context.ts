@@ -11,11 +11,14 @@ export type Route =
   | { view: "home" }
   | { view: "case"; caseId: string }
   | { view: "report"; caseId: string; reportId: string }
+  | { view: "workflow"; caseId: string; runId: string }
   | { view: "review" };
 
 export function parseRoute(hash: string): Route {
   const parts = hash.replace(/^#\/?/, "").split("/").filter(Boolean);
   if (parts[0] === "case" && parts[1]) {
+    if (parts[2] === "workflow" && parts[3])
+      return { view: "workflow", caseId: parts[1], runId: parts[3] };
     return parts[2] === "report" && parts[3]
       ? { view: "report", caseId: parts[1], reportId: parts[3] }
       : { view: "case", caseId: parts[1] };
@@ -26,6 +29,8 @@ export function routeHash(route: Route) {
   if (route.view === "case") return "#/case/" + route.caseId;
   if (route.view === "report")
     return "#/case/" + route.caseId + "/report/" + route.reportId;
+  if (route.view === "workflow")
+    return "#/case/" + route.caseId + "/workflow/" + route.runId;
   return route.view === "review" ? "#/review" : "#/";
 }
 

@@ -76,6 +76,17 @@ class ClaimWorkflow:
             except ValidationError as error:
                 raise ModelPaused("The model answered in an unexpected format twice. Resume to try again.") from error
 
+    @staticmethod
+    def mark(state, reason=None):
+        """Tag the current step with its request and pass, so the workflow view can lay it out."""
+        from .observability import current_span
+        active = current_span()
+        if active:
+            active.set_attribute("claim.request_index", state["index"])
+            active.set_attribute("claim.correction_count", state.get("attempts", 0))
+            if reason:
+                active.set_attribute("claim.correction_reason", reason)
+
     @traced("plan", "AGENT")
     def plan(self, state):
         communications = [d for d in self.docs if d["kind"] == "insurer_communication"]
@@ -102,6 +113,7 @@ class ClaimWorkflow:
     def policy(self, state):
         """Reads the wording first, so the evidence step can write one answer from records and policy together."""
         request = state["requests"][state["index"]]
+        self.mark(state)
         if not request["needs_policy"]:
             return {"policy": NO_POLICY}
         wording = [d for d in self.docs if d["kind"] in POLICY_KINDS]
@@ -122,6 +134,7 @@ class ClaimWorkflow:
     @traced("evidence", "AGENT")
     def evidence(self, state):
         request = state["requests"][state["index"]]
+        self.mark(state)
         context = PolicyContext.model_validate(state.get("policy") or NO_POLICY)
         query = request["text"] + " " + " ".join(request["required_evidence"]) + " " + state.get("correction", "")
         # Inventory exposes unreadable and alternative versions even when keyword search finds nothing.
@@ -174,6 +187,7 @@ class ClaimWorkflow:
             active.set_attribute("claim.correction_count", attempts)
         if citation_errors and not attempts:
             # The single corrective cycle: ask for citations that exist before spending a verifier call.
+            self.mark(state, "citation")
             return {"attempts": 1, "correction": "Source checks failed: " + "; ".join(citation_errors) +
                     ". Cite only the supplied pages and copy each quote word for word."}
         verdict = self.call("Verifier Agent",
@@ -198,8 +212,10 @@ class ClaimWorkflow:
         if not attempts:
             # The single corrective cycle goes to whichever targeted fix the verifier asked for.
             if verdict.decision == "needs_targeted_action" and verdict.targeted_query:
+                self.mark(state, "targeted_search")
                 return {"attempts": 1, "correction": verdict.targeted_query}
             if unsupported:
+                self.mark(state, "unsupported_statements")
                 return {"attempts": 1, "correction": "The verifier could not find support for these statements: " + " | ".join(unsupported) +
                         ". Rewrite without them, or cite a supplied page that supports them. Do not promise to send, obtain or do anything."}
         # A conclusion survives only if its citations exist and the verifier found the explanation supported.
@@ -285,6 +301,8 @@ class ClaimWorkflow:
 def process_run(run_id: str):
     from filelock import FileLock
     from .notifications import notify_case
+    from . import trace_store
+    trace_store.install()
     lock = settings().data_dir / "runtime" / ("analysis-" + run_id + ".lock")
     lock.parent.mkdir(parents=True, exist_ok=True)
     with FileLock(str(lock)):

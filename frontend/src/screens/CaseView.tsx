@@ -19,6 +19,7 @@ import {
   Sparkles,
   Trash2,
   TriangleAlert,
+  Workflow,
 } from "lucide-react";
 import { api, blob, saveFile, send } from "../api";
 import { foreignReferences, useApp } from "../app-context";
@@ -517,6 +518,19 @@ export function CaseView({
                           View report <ArrowUpRight size={15} />
                         </button>
                       )}
+                      <button
+                        className="btn btn-soft btn-sm"
+                        onClick={() =>
+                          app.go({
+                            view: "workflow",
+                            caseId: item.id,
+                            runId: run.id,
+                          })
+                        }
+                      >
+                        <Workflow size={14} />
+                        Workflow
+                      </button>
                       {run.status === "paused" && (
                         <button
                           className="btn btn-soft btn-sm"

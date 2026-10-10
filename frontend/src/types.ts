@@ -172,3 +172,92 @@ export type Uploaded = {
   version: number;
   claim_references: string[];
 };
+
+export type FlowTool = {
+  name: string;
+  kind: string;
+  calls: number;
+  results: number;
+  duration_ms: number;
+  passed: boolean | null;
+};
+export type FlowStep = {
+  id: string;
+  name: string;
+  kind: string;
+  started_at: string;
+  duration_ms: number | null;
+  running: boolean;
+  interrupted: boolean;
+  outcome?: string | null;
+  model: {
+    calls: number;
+    duration_ms: number;
+    tokens: number;
+    running: boolean;
+  } | null;
+  tools: FlowTool[];
+  facts: Record<string, number | string | boolean>;
+};
+export type FlowPass = {
+  request_index: number;
+  number: number;
+  steps: FlowStep[];
+};
+export type FlowAttempt = {
+  id: string;
+  started_at: string;
+  duration_ms: number | null;
+  running: boolean;
+  interrupted: boolean;
+  outcome?: string | null;
+  facts: Record<string, number | string | boolean>;
+  setup: FlowStep[];
+  plan: FlowStep | null;
+  package: FlowStep | null;
+  passes: FlowPass[];
+};
+export type FlowRequest = {
+  index: number;
+  text: string;
+  category?: string | null;
+  needs_policy?: boolean | null;
+  result: {
+    evidence_status: string;
+    submission_status: string;
+    review_required: boolean;
+    blocked?: boolean | null;
+    policy_position?: string | null;
+  } | null;
+};
+export type Workflow = {
+  run: Run;
+  recorded: boolean;
+  requests: FlowRequest[];
+  attempts: FlowAttempt[];
+  totals: {
+    duration_ms: number;
+    attempts: number;
+    model_calls: number;
+    tokens: number;
+    tool_calls: number;
+    corrections: number;
+    documents: number;
+  };
+};
+export type Integrations = {
+  neatlogs: {
+    sdk_version: string | null;
+    enabled: boolean;
+    key_configured: boolean;
+    exporting: boolean;
+    endpoint: string;
+    workflow_name: string;
+    analyses_traced: number;
+    steps_recorded: number;
+  };
+  entire: { enabled: boolean; configured: boolean };
+  cfo_ai: { export: string; months: number; analyses: number };
+  stack: Record<string, string | null>;
+  model: string;
+};

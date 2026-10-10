@@ -18,6 +18,7 @@ import {
   Plus,
   ShieldCheck,
   Sparkles,
+  Workflow,
   UserRoundCheck,
   X,
 } from "lucide-react";
@@ -43,6 +44,7 @@ import { CaseView } from "./screens/CaseView";
 import { Home } from "./screens/Home";
 import { ReportView } from "./screens/ReportView";
 import { ReviewDesk } from "./screens/ReviewDesk";
+import { WorkflowView } from "./screens/WorkflowView";
 import type {
   ClaimCase,
   Connection,
@@ -108,7 +110,11 @@ export function App() {
   setReviewerMode(reviewer);
 
   const caseId =
-    route.view === "case" || route.view === "report" ? route.caseId : null;
+    route.view === "case" ||
+    route.view === "report" ||
+    route.view === "workflow"
+      ? route.caseId
+      : null;
   const reportId = route.view === "report" ? route.reportId : null;
   const item = cases?.find((c) => c.id === caseId) ?? null;
   const ready = !!connection?.connected && !!connection.model_available;
@@ -436,6 +442,16 @@ export function App() {
         enabled: !!latestReport,
       },
       {
+        label: "Analysis workflow",
+        icon: Workflow,
+        active: route.view === "workflow",
+        run: () =>
+          caseId &&
+          runs[0] &&
+          go({ view: "workflow", caseId, runId: runs[0].id }),
+        enabled: !!caseId && runs.length > 0,
+      },
+      {
         label: "Review desk",
         icon: ClipboardCheck,
         active: route.view === "review",
@@ -443,7 +459,7 @@ export function App() {
         enabled: true,
       },
     ],
-    [route, caseId, latestReport?.report_id],
+    [route, caseId, latestReport?.report_id, runs[0]?.id],
   );
 
   return (
@@ -640,6 +656,18 @@ export function App() {
                   </span>
                 </>
               )}
+              {route.view === "workflow" && (
+                <>
+                  <ChevronRight
+                    size={14}
+                    className="shrink-0"
+                    aria-hidden="true"
+                  />
+                  <span className="font-semibold whitespace-nowrap text-ink">
+                    Workflow
+                  </span>
+                </>
+              )}
               {route.view === "review" && (
                 <>
                   <ChevronRight
@@ -737,6 +765,12 @@ export function App() {
               />
             ) : !item ? (
               <Spinner label="Opening the claim..." />
+            ) : route.view === "workflow" ? (
+              <WorkflowView
+                item={item}
+                runId={route.runId}
+                liveStatus={runs.find((run) => run.id === route.runId)?.status}
+              />
             ) : route.view === "report" ? (
               report ? (
                 <ReportView

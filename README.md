@@ -6,7 +6,8 @@ shows what is supported and what is missing, and drafts a reply with page-level 
 
 **Recommended: native Windows API, worker and UI, with Redis in Docker.**
 See [native setup and ChatGPT sign-in](docs/native-run.md).
-Read the [architecture review and verification record](docs/architecture-review.md).
+Read the [architecture review and verification record](docs/architecture-review.md) and the
+[neatHack requirements and evidence](docs/hackathon.md).
 
 ## Included
 
@@ -25,6 +26,10 @@ Read the [architecture review and verification record](docs/architecture-review.
 - Response package: editable reply letter, next-step checklist, attachment manifest and a ZIP
   with the letter, a readable summary, the structured report and the cited originals.
 - Five synthetic walkthrough scenarios that can be opened from the home screen.
+- An Analysis workflow page that draws every analysis as a flowchart from its recorded steps
+  (planner, policy, evidence, verifier, correction loops, packaging), live while it runs.
+- A home-screen section showing how neatlogs, Entire and cfo.ai are used, read from the
+  installation, with a monthly usage export for the cfo.ai business model.
 - OAuth-only model adapter configured to **gpt-6-luna** for every application LLM call.
 
 **This is a working localhost build, not a production service.** Chroma/BGE retrieval, selective
@@ -162,6 +167,9 @@ Chrome against intercepted fictional API responses.
 | GET | /cases/{id}/analysis-events | Server-sent analysis status |
 | GET / DELETE | /analyses/{run} | Run state / delete a finished run with its report |
 | POST | /analyses/{run}/resume | Resume a paused run from its checkpoint |
+| GET | /analyses/{run}/workflow | The analysis as it ran: attempts, steps, timings, tool and model calls |
+| GET | /system/integrations | How neatlogs, Entire, cfo.ai and the core stack are used here |
+| GET | /business/metrics.csv | Monthly usage totals for the cfo.ai model (no claim content) |
 | GET | /reports/{report} | Immutable report plus the customer's saved edits |
 | PUT | /reports/{report}/draft, /checklist | Save the edited letter / ticked next steps |
 | GET | /reports/{report}/reviews | Review decisions for the report |
@@ -170,6 +178,14 @@ Chrome against intercepted fictional API responses.
 | POST / GET | /tasks/{run}:{request}/review(s) | Record a decision (reviewer mode) / read history |
 | GET / POST | /samples, /samples/{key} | List / create a sample claim |
 | POST | /cases/{id}/sample-follow-up | Add a sample's second-round documents |
+
+## Step record
+
+Each workflow step is stored in the run_events table as it starts and finishes: its name,
+kind, timing, counts and outcome, the same metadata that is traced to neatlogs. No document
+text is stored there. It feeds the Analysis workflow page and the monthly usage totals.
+Analyses made before the table existed are filled in from logs/telemetry-worker.jsonl the
+first time their workflow is opened.
 
 ## Current limits
 

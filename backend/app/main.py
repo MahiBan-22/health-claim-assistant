@@ -13,7 +13,7 @@ from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, UploadF
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse, Response, StreamingResponse
 from starlette.concurrency import run_in_threadpool
-from . import db, intake
+from . import db, intake, trace_store
 from .config import settings
 from .extraction import extract
 from .jobs import enqueue, queue_status
@@ -194,6 +194,47 @@ def system_status(user: User):
     return {"api": True, "database": True, **queue_status(), "ocr": bool(shutil.which("tesseract")),
             "model": settings().llm_model, "counts": counts}
 
+def package_version(name):
+    from importlib.metadata import PackageNotFoundError, version
+    try:
+        return version(name)
+    except PackageNotFoundError:
+        return None
+
+@app.get("/system/integrations")
+def integrations(user: User):
+    """How the hackathon's required tools and the core stack are used. Facts only, read from this installation."""
+    from . import observability
+    config = settings()
+    repository = Path(__file__).resolve().parents[2]
+    entire = {}
+    try:
+        entire = json.loads((repository / ".entire" / "settings.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        pass
+    counts = db.rows("SELECT (SELECT COUNT(DISTINCT run_id) FROM run_events) AS traced, (SELECT COUNT(*) FROM run_events) AS steps, "
+                     "(SELECT COUNT(*) FROM analyses) AS analyses")[0]
+    return {
+        "neatlogs": {"sdk_version": package_version("neatlogs"), "enabled": config.neatlogs_enabled, "key_configured": bool(config.neatlogs_api_key.get_secret_value()),
+                     "exporting": observability.exporting(), "endpoint": config.neatlogs_endpoint, "workflow_name": config.neatlogs_workflow_name,
+                     "analyses_traced": counts["traced"], "steps_recorded": counts["steps"]},
+        "entire": {"enabled": bool(entire.get("enabled")), "configured": bool(entire)},
+        "cfo_ai": {"export": "/business/metrics.csv", "months": len(trace_store.monthly_metrics()), "analyses": counts["analyses"]},
+        "stack": {name: package_version(name) for name in ("langgraph", "fastapi", "pydantic", "sqlalchemy", "rq", "redis", "pymupdf", "httpx", "keyring")},
+        "model": config.llm_model,
+    }
+
+@app.get("/business/metrics.csv")
+def business_metrics(user: User):
+    """Monthly totals for the cfo.ai business model. No claim content, document or person is included."""
+    import csv
+    rows = trace_store.monthly_metrics()
+    buffer = io.StringIO()
+    writer = csv.DictWriter(buffer, fieldnames=list(rows[0]) if rows else ["month"], lineterminator="\n")
+    writer.writeheader()
+    writer.writerows(rows)
+    return Response(buffer.getvalue(), media_type="text/csv", headers={"Content-Disposition": 'attachment; filename="claimwise-monthly-metrics.csv"'})
+
 @app.get("/cases")
 def list_cases(user: User):
     return case_views(user)
@@ -369,6 +410,13 @@ def delete_analysis(run_id: str, user: User):
 @app.get("/analyses/{run_id}")
 def analysis(run_id: str, user: User):
     return run_for(run_id, user)
+
+@app.get("/analyses/{run_id}/workflow")
+def analysis_workflow(run_id: str, user: User):
+    """The analysis as it actually ran, step by step, for the workflow view."""
+    run = run_for(run_id, user)
+    reports = db.rows("SELECT body FROM reports WHERE run_id=:run", run=run_id)
+    return trace_store.view(run, json.loads(reports[0]["body"]) if reports else None)
 
 @app.post("/analyses/{run_id}/resume", status_code=202)
 def resume(run_id: str, user: User):

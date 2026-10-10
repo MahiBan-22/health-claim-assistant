@@ -127,6 +127,112 @@ const queueItem = {
   decisions: [] as unknown[],
 };
 
+const step = (id: string, name: string, extra = {}) => ({
+  id,
+  name,
+  kind: "AGENT",
+  started_at: "2026-10-10T08:00:05Z",
+  duration_ms: 9000,
+  running: false,
+  interrupted: false,
+  outcome: "success",
+  model: { calls: 1, duration_ms: 8000, tokens: 1200, running: false },
+  tools: [],
+  facts: {},
+  ...extra,
+});
+const workflow = {
+  run: runs[0],
+  recorded: true,
+  requests: [
+    {
+      index: 0,
+      text: report.requests[0].text,
+      category: "document_request",
+      needs_policy: false,
+      result: {
+        evidence_status: "partially_satisfied",
+        submission_status: "not_established",
+        review_required: true,
+        blocked: false,
+        policy_position: null,
+      },
+    },
+  ],
+  attempts: [
+    {
+      id: "root",
+      started_at: "2026-10-10T08:00:00Z",
+      duration_ms: 64000,
+      running: false,
+      interrupted: false,
+      outcome: "completed",
+      facts: { documents: 3 },
+      setup: [],
+      plan: step("plan", "plan", { facts: { results: 1 } }),
+      package: step("package", "claim.package", { kind: "TOOL", model: null }),
+      passes: [
+        {
+          request_index: 0,
+          number: 0,
+          steps: [
+            step("policy-0", "policy", { model: null, duration_ms: 1 }),
+            step("evidence-0", "evidence"),
+            step("verify-0", "verify", {
+              facts: { correction_reason: "unsupported_statements" },
+            }),
+          ],
+        },
+        {
+          request_index: 0,
+          number: 1,
+          steps: [
+            step("policy-1", "policy", { model: null, duration_ms: 1 }),
+            step("evidence-1", "evidence"),
+            step("verify-1", "verify", {
+              tools: [
+                {
+                  name: "validate_source_refs",
+                  kind: "GUARDRAIL",
+                  calls: 1,
+                  results: 0,
+                  duration_ms: 2,
+                  passed: true,
+                },
+              ],
+            }),
+          ],
+        },
+      ],
+    },
+  ],
+  totals: {
+    duration_ms: 64000,
+    attempts: 1,
+    model_calls: 5,
+    tokens: 15804,
+    tool_calls: 43,
+    corrections: 1,
+    documents: 3,
+  },
+};
+const integrations = {
+  neatlogs: {
+    sdk_version: "1.4.26",
+    enabled: true,
+    key_configured: true,
+    exporting: true,
+    endpoint: "https://ingest.neatlogs.com",
+    workflow_name: "claim-evidence-assistant",
+    analyses_traced: 12,
+    steps_recorded: 809,
+  },
+  entire: { enabled: true, configured: true },
+  cfo_ai: { export: "/business/metrics.csv", months: 1, analyses: 17 },
+  stack: { langgraph: "1.2.14", fastapi: "0.143.0" },
+  model: "gpt-6-luna",
+};
+
 async function workspace(page: Page) {
   const saved: { method: string; path: string; body: unknown }[] = [];
   await page.route("http://127.0.0.1:8000/**", async (route) => {
@@ -143,6 +249,8 @@ async function workspace(page: Page) {
     let body: unknown = {};
     if (path === "/cases") body = [claim];
     else if (path === "/samples") body = [];
+    else if (path === "/system/integrations") body = integrations;
+    else if (path === "/analyses/run-2/workflow") body = workflow;
     else if (path === "/system/status")
       body = {
         api: true,
@@ -362,4 +470,65 @@ test("mobile layout fits the screen and dialogs manage focus", async ({
   await page.getByLabel("Search terms").fill("co-pay");
   await expect(page.getByText("Co-payment", { exact: true })).toBeVisible();
   await expect(page.getByText("Itemized bill", { exact: true })).toHaveCount(0);
+});
+
+test("workflow chart shows each step and the landing page names the required tools", async ({
+  page,
+}) => {
+  const errors: string[] = [];
+  page.on("pageerror", (error) => errors.push(error.message));
+  await workspace(page);
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.goto("/#/case/case-1");
+  await page.getByRole("tab", { name: /Analyses/ }).click();
+  await page.getByRole("button", { name: "Workflow" }).first().click();
+
+  await expect(
+    page.getByRole("heading", { name: "How this analysis ran" }),
+  ).toBeVisible();
+  await expect(page.getByText("15,804")).toBeVisible();
+  const point = page.getByRole("region", { name: "Point 1" });
+  await expect(point.getByText("Planner")).toHaveCount(0);
+  await expect(point.getByText("Evidence agent")).toHaveCount(2);
+  await expect(point.getByText("Correction loop.")).toBeVisible();
+  await expect(
+    point.getByText(
+      "Not needed: this point does not depend on policy wording.",
+    ),
+  ).toHaveCount(2);
+  await expect(point.getByText("Sent to review")).toBeVisible();
+  // A step opens to show what it did.
+  await point
+    .getByRole("button", { name: /Verifier/ })
+    .last()
+    .click();
+  await expect(
+    point.getByText("Checked each citation word for word: passed"),
+  ).toBeVisible();
+  await page.screenshot({
+    path: "test-results/workflow-desktop.png",
+    fullPage: true,
+  });
+  await page.getByRole("button", { name: /Open report/ }).click();
+  await expect(
+    page.getByRole("heading", { name: "The evidence, explained." }),
+  ).toBeVisible();
+  await page.getByRole("button", { name: "How this was produced" }).click();
+  await expect(
+    page.getByRole("heading", { name: "How this analysis ran" }),
+  ).toBeVisible();
+
+  await page.goto("/#/");
+  const tools = page.getByRole("region", {
+    name: "How the required tools are used",
+  });
+  for (const name of ["neatlogs", "Entire", "cfo.ai"])
+    await expect(tools.getByRole("heading", { name })).toBeVisible();
+  await expect(tools.getByText("Exporting traces")).toBeVisible();
+  await expect(tools.getByText("Session tracking enabled")).toBeVisible();
+  await expect(
+    tools.getByRole("button", { name: "Download metrics CSV" }),
+  ).toBeVisible();
+  await expect(tools.getByText("1.2.14")).toBeVisible();
+  expect(errors).toEqual([]);
 });

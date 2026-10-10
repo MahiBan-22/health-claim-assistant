@@ -10,9 +10,10 @@ There is no login. The workspace opens on the home screen. The address keeps you
 
 ## Screens
 
-- **My claims**: claims with document, analysis and report counts, and the sample scenarios.
+- **My claims**: claims with document, analysis and report counts, the sample scenarios, and a closing section on how neatlogs, Entire and cfo.ai are used.
 - **Claim workspace**: progress steps, documents (drag-and-drop upload, suggested categories that can be corrected in the grid, versions, page viewer), a timeline of dated lines, analysis history and the next best step.
 - **Evidence report**: a headline count, a status bar, findings with citations that open the source page at the quoted passage, comparison with the previous report, a next-step checklist, an editable reply letter and the ZIP response package.
+- **Analysis workflow**: one analysis drawn as a flowchart from its recorded steps: start, planner, each point's policy, evidence and verifier steps with any correction loop, packaging and the result. Steps open to show their tool and model calls. It refreshes while the analysis runs.
 - **Review desk**: findings that need a person across all claims, with a decision form and decision history.
 
 ## Validation
@@ -20,7 +21,7 @@ There is no login. The workspace opens on the home screen. The address keeps you
 - `npm run build` checks TypeScript and creates production assets.
 - With Vite running at http://127.0.0.1:5173, run `npm run test:e2e`. Tests use headless Chrome and intercepted fictional API responses; they do not modify real claims or invoke an LLM. Screenshots are saved in ignored `test-results/`.
 
-Browser tests cover opening without a login, document search, timeline, analysis history, the report, citation viewing and closing, the checklist and letter saves, a reviewer decision, mobile overflow, dialog focus and the glossary.
+Browser tests cover opening without a login, document search, timeline, analysis history, the report, citation viewing and closing, the checklist and letter saves, a reviewer decision, the workflow chart, the required-tools section, mobile overflow, dialog focus and the glossary.
 
 ## Components
 

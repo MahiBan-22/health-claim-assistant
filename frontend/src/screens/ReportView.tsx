@@ -16,6 +16,7 @@ import {
   ShieldAlert,
   TriangleAlert,
   Undo2,
+  Workflow,
 } from "lucide-react";
 import { api, blob, saveFile, send } from "../api";
 import { useApp } from "../app-context";
@@ -170,6 +171,19 @@ export function ReportView({
           Back to claim
         </button>
         <div className="ml-auto flex flex-wrap gap-2">
+          <button
+            className="btn btn-soft btn-sm"
+            onClick={() =>
+              app.go({
+                view: "workflow",
+                caseId: item.id,
+                runId: report.run_id,
+              })
+            }
+          >
+            <Workflow size={15} />
+            How this was produced
+          </button>
           {earlier && (
             <button
               className={

@@ -13,7 +13,10 @@ SCHEMA = [
     "CREATE TABLE IF NOT EXISTS tasks (id TEXT PRIMARY KEY, run_id TEXT NOT NULL REFERENCES analyses(id), request_id TEXT NOT NULL, finding TEXT NOT NULL)",
     "CREATE TABLE IF NOT EXISTS reviews (id TEXT PRIMARY KEY, task_id TEXT NOT NULL REFERENCES tasks(id), reviewer TEXT NOT NULL, decision TEXT NOT NULL, rationale TEXT NOT NULL, created_at TEXT NOT NULL)",
     # Customer edits sit beside the immutable report: the edited draft and ticked next actions.
-    "CREATE TABLE IF NOT EXISTS report_notes (report_id TEXT NOT NULL, key TEXT NOT NULL, value TEXT NOT NULL, updated_at TEXT NOT NULL, PRIMARY KEY (report_id, key))"
+    "CREATE TABLE IF NOT EXISTS report_notes (report_id TEXT NOT NULL, key TEXT NOT NULL, value TEXT NOT NULL, updated_at TEXT NOT NULL, PRIMARY KEY (report_id, key))",
+    # One row per workflow step of an analysis (metadata only), for the workflow view and usage totals.
+    "CREATE TABLE IF NOT EXISTS run_events (id TEXT PRIMARY KEY, run_id TEXT NOT NULL, parent_id TEXT, name TEXT NOT NULL, kind TEXT NOT NULL, started_at REAL NOT NULL, duration_ms REAL, attributes TEXT NOT NULL)",
+    "CREATE INDEX IF NOT EXISTS run_events_by_run ON run_events (run_id, started_at)"
 ]
 
 RUN_CLEANUP = [
@@ -21,6 +24,7 @@ RUN_CLEANUP = [
     "DELETE FROM tasks WHERE run_id=:id",
     "DELETE FROM report_notes WHERE report_id IN (SELECT id FROM reports WHERE run_id=:id)",
     "DELETE FROM reports WHERE run_id=:id",
+    "DELETE FROM run_events WHERE run_id=:id",
     "DELETE FROM analyses WHERE id=:id",
 ]
 

@@ -12,6 +12,7 @@ import {
   Trash2,
 } from "lucide-react";
 import { useApp } from "../app-context";
+import { BuiltWith } from "./BuiltWith";
 import { date } from "../lib";
 import type { ClaimCase, Sample } from "../types";
 import { Empty, RunChip } from "../ui";
@@ -281,6 +282,8 @@ export function Home({
           </div>
         </section>
       )}
+
+      <BuiltWith />
     </div>
   );
 }

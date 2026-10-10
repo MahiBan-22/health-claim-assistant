@@ -67,6 +67,14 @@ No dollar cost is estimated from ChatGPT plan tokens. Local cost_usd is null;
 NeatLogs may display a provider value of zero, which is not a billing measurement.
 Missing token usage is distinguishable from zero using calls_with_usage.
 
+## Step record in the application
+
+The same span stream is mirrored into the application database (table run_events) through
+a recorder registered by the worker. It carries the allow-listed attributes only. The
+Analysis workflow page and GET /business/metrics.csv read from it, so they work without
+network access and show the same counts as the neatlogs trace. A failure to write a step
+is logged as telemetry_degraded with reason step_record_failed and never stops an analysis.
+
 ## Privacy and failure behavior
 
 The global SDK mask runs before export. It allowlists fixed operation names,

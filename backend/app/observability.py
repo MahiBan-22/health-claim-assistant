@@ -18,6 +18,7 @@ _workflow_name = "claim-evidence-assistant"
 _stop = None
 _monitor = None
 _current = contextvars.ContextVar("claim_trace", default=None)
+_recorder = None
 _local = logging.getLogger("claim.telemetry")
 _local.propagate = False
 _local.setLevel(logging.INFO)
@@ -38,6 +39,7 @@ ENUMS = {
     "claim.analysis_status": {"queued", "running", "paused", "completed"},
     "claim.service": {"api", "worker", "diagnostic"},
     "claim.stream_state": {"started", "completed", "interrupted"},
+    "claim.correction_reason": {"citation", "targeted_search", "unsupported_statements"},
     "claim.role": {"request planner", "Evidence Agent", "Policy Agent", "Verifier Agent"},
     "claim.http_method": {"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
     "neatlogs.llm.provider": {"openai"},
@@ -65,7 +67,7 @@ def safe_attributes(attrs):
             safe[key] = value
         elif key == "claim.error_type" and isinstance(value, str) and re.fullmatch(r"[A-Za-z][A-Za-z0-9_]{0,70}", value):
             safe[key] = value
-        elif key == "claim.route" and isinstance(value, str) and re.fullmatch(r"/[a-z/{}_-]+", value):
+        elif key == "claim.route" and isinstance(value, str) and re.fullmatch(r"/[a-z/{}_.-]+", value):
             safe[key] = value
         elif key in {"neatlogs.span.kind", "openinference.span.kind"} and isinstance(value, str) and value.lower() in {k.lower() for k in KINDS}:
             safe[key] = value
@@ -103,6 +105,21 @@ def mask(item, *, context=None):
     item["status"] = {"code": status.get("code") if status.get("code") in {"UNSET", "OK", "ERROR"} else "UNSET", "description": None}
     item.pop("body", None)
     return {key: value for key, value in item.items() if key in {"signal", "name", "attributes", "events", "links", "resource", "status"}}
+
+def set_recorder(recorder):
+    """Register a callable(phase, info) that receives each step at its start and end."""
+    global _recorder
+    _recorder = recorder
+
+def _record(phase, name, kind, active, parent, started, duration=None):
+    if _recorder is None:
+        return
+    try:
+        _recorder(phase, {"name": name, "kind": kind, "trace_id": active.trace_id, "span_id": active.span_id,
+                          "parent_span_id": parent.span_id if parent else None, "attributes": dict(active.attributes),
+                          "started": started, "duration_ms": duration})
+    except Exception:
+        degraded("step_record_failed")
 
 def degraded(reason):
     logger.warning("telemetry_degraded reason=%s", reason)
@@ -222,6 +239,8 @@ def span(name, kind="TOOL", **attributes):
     for k, v in active.attributes.copy().items(): active.set_attribute(k, v)
     token = _current.set(active)
     started = time.monotonic()
+    started_at = time.time()
+    _record("start", name, kind, active, parent, started_at)
     try:
         yield active
     except BaseException as error:
@@ -236,6 +255,7 @@ def span(name, kind="TOOL", **attributes):
                 manager.__exit__(None, None, None)
             except Exception:
                 degraded("span_end_failed")
+        _record("end", name, kind, active, parent, started_at, active.attributes.get("claim.duration_ms"))
         _local.info(json.dumps({"event": "span", "time": time.time(), "name": name, "kind": kind,
                                "trace_id": trace_id, "span_id": span_id,
                                "parent_span_id": parent.span_id if parent else None, "attributes": active.attributes}))
@@ -255,6 +275,10 @@ def traced(name, kind="TOOL"):
                 return result
         return invoke
     return decorate
+
+def exporting():
+    """True when the SDK is initialised in this process and spans are being exported."""
+    return _sdk is not None
 
 def graph_callbacks():
     if _sdk is None:
