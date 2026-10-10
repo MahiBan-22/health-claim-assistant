@@ -1,0 +1,52 @@
+services:
+  api:
+    profiles: [containers]
+    build: ./backend
+    env_file: .env
+    environment:
+      DATA_DIR: /data
+      LOG_DIR: /logs
+      REDIS_URL: redis://redis:6379/0
+    ports:
+      - "127.0.0.1:8000:8000"
+    volumes:
+      - claim-data:/data
+      - ./logs:/logs
+    depends_on:
+      redis:
+        condition: service_healthy
+  worker:
+    profiles: [containers]
+    build: ./backend
+    command: ["python", "-m", "app.worker"]
+    env_file: .env
+    environment:
+      DATA_DIR: /data
+      LOG_DIR: /logs
+      REDIS_URL: redis://redis:6379/0
+    volumes:
+      - claim-data:/data
+      - ./logs:/logs
+    depends_on:
+      redis:
+        condition: service_healthy
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "127.0.0.1:6379:6379"
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+  frontend:
+    profiles: [containers]
+    build: ./frontend
+    ports:
+      - "127.0.0.1:5173:5173"
+volumes:
+  claim-data:
+  redis-data:

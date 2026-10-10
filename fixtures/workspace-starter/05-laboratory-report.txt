@@ -1,0 +1,14 @@
+SYNTHETIC APPLICATION TEST DATA - NOT A REAL CLAIM
+Laboratory: Example Test Hospital Laboratory
+Claim reference: SYN-DEMO-001
+Member ID: SYN-MEM-001
+Patient: Demo Patient
+Report number: SYN-LAB-001
+Sample date: 2 October 2026
+Report date: 2 October 2026
+Record status: final laboratory report
+
+Recorded test: dengue NS1 antigen
+Recorded result: positive
+
+This is a fictional laboratory record for software testing. It provides no medical advice and establishes no universal insurance evidence requirement.

@@ -1,0 +1,13 @@
+{
+  "scenario": "final versus provisional",
+  "claim_reference": "SYN-DEN-001",
+  "expected": {
+    "evidence_status": "partially_satisfied",
+    "submission_status": "not_established",
+    "must_not_claim": [
+      "final summary available",
+      "insurer receipt confirmed",
+      "claim approval guaranteed"
+    ]
+  }
+}
