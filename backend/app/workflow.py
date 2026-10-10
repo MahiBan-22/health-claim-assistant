@@ -134,8 +134,8 @@ class ClaimWorkflow:
         for request, finding in zip(state["requests"], state["findings"], strict=True):
             draft += request["text"] + "\n" + finding["explanation"] + "\nNext action: " + finding["next_action"] + "\n\n"
         report_id = db.uid()
-        previous = db.rows("SELECT id FROM reports WHERE case_id=:case", case=self.case["id"])
-        body = {"id": report_id, "run_id": self.run["id"], "case_id": self.case["id"], "version": len(previous) + 1,
+        previous = db.rows("SELECT body FROM reports WHERE case_id=:case", case=self.case["id"])
+        body = {"id": report_id, "run_id": self.run["id"], "case_id": self.case["id"], "version": max((json.loads(item["body"])["version"] for item in previous), default=0) + 1,
                 "model": self.config.llm_model, "requests": state["requests"], "findings": state["findings"],
                 "input_versions": self.tools.list_documents(), "attachment_manifest": manifest,
                 "response_draft": draft, "review_required": any(f["review_required"] for f in state["findings"])}
@@ -164,6 +164,20 @@ class ClaimWorkflow:
         return builder.compile(checkpointer=checkpointer)
 
 def process_run(run_id: str):
+    from filelock import FileLock
+    from .notifications import notify_case
+    lock = settings().data_dir / "runtime" / ("analysis-" + run_id + ".lock")
+    lock.parent.mkdir(parents=True, exist_ok=True)
+    with FileLock(str(lock)):
+        records = db.rows("SELECT * FROM analyses WHERE id=:id", id=run_id)
+        if not records or records[0]["status"] != "queued":
+            return
+        try:
+            _process_run(run_id)
+        finally:
+            notify_case(records[0]["case_id"])
+
+def _process_run(run_id: str):
     if not logging.getLogger("app").handlers:
         from .logging_setup import configure_logging
         configure_logging("worker", settings())
@@ -177,6 +191,8 @@ def process_run(run_id: str):
         return
     with db.transaction() as connection:
         db.execute(connection, "UPDATE analyses SET status='running',error=NULL WHERE id=:id", id=run_id)
+    from .notifications import notify_case
+    notify_case(run["case_id"])
     try:
         workflow = ClaimWorkflow(run)
         workflow.model.check_available()

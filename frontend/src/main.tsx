@@ -11,6 +11,7 @@ function App() {
   const [cases, setCases] = useState<ClaimCase[]>([]);
   const [selected, setSelected] = useState<ClaimCase | null>(null);
   const [documents, setDocuments] = useState<Document[]>([]);
+  const [runs, setRuns] = useState<Run[]>([]);
   const [run, setRun] = useState<Run | null>(null);
   const [report, setReport] = useState<Report | null>(null);
   const [view, setView] = useState('workspace');
@@ -37,21 +38,51 @@ function App() {
     try { await action(); } catch (e) { setError(e instanceof Error ? e.message : 'Unexpected error'); }
     finally { setBusy(false); }
   }
+  const [liveStatus, setLiveStatus] = useState('');
   useEffect(() => {
-    if (!run || !['queued', 'running'].includes(run.status)) return;
-    let cancelled = false;
-    const timer = window.setInterval(() => {
-      void api<Run>('/analyses/' + run.id).then(async current => {
-        if (cancelled) return;
-        setRun(current);
-        if (current.report_id) {
-          const completed = await api<Report>('/reports/' + current.report_id);
-          if (!cancelled) { setReport(completed); setView('report'); }
-        }
-      }).catch(e => { if (!cancelled) setError(String(e)); });
-    }, 2000);
-    return () => { cancelled = true; window.clearInterval(timer); };
-  }, [run?.id, run?.status, token]);
+    if (!connected || !selected) return;
+    const controller = new AbortController();
+    let retry: ReturnType<typeof setTimeout> | undefined;
+    let delay = 1000;
+    async function listen() {
+      try {
+        setLiveStatus('Connecting to live analysis updates…');
+        const response = await fetch(base + '/cases/' + selected!.id + '/analysis-events', {
+          headers: {Authorization: 'Bearer ' + token}, signal: controller.signal,
+        });
+        if (!response.ok || !response.body) throw new Error('Live updates unavailable');
+        setLiveStatus('Live analysis updates connected');
+        delay = 1000;
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+        try {
+          while (true) {
+            const {value, done} = await reader.read();
+            if (done) throw new Error('Live connection ended');
+            buffer += decoder.decode(value, {stream: true});
+            let boundary: number;
+            while ((boundary = buffer.indexOf('\n\n')) >= 0) {
+              const event = buffer.slice(0, boundary);
+              buffer = buffer.slice(boundary + 2);
+              if (!event.startsWith('data: ')) continue;
+              const current = JSON.parse(event.slice(6)) as Run[];
+              if (controller.signal.aborted) return;
+              setRuns(current);
+              setRun(previous => previous ? current.find(item => item.id === previous.id) || null : null);
+            }
+          }
+        } finally { reader.releaseLock(); }
+      } catch {
+        if (controller.signal.aborted) return;
+        setLiveStatus('Live connection interrupted. Reconnecting…');
+        retry = setTimeout(() => void listen(), delay);
+        delay = Math.min(delay * 2, 30000);
+      }
+    }
+    void listen();
+    return () => {controller.abort(); if (retry) clearTimeout(retry);};
+  }, [connected, selected?.id, token]);
 
   async function refreshConnection() {
     const status = await api<Connection>('/auth/chatgpt/status');
@@ -107,8 +138,26 @@ function App() {
   }
 
   async function choose(item: ClaimCase) {
-    setSelected(item); setRun(null); setReport(null); setPreview(null);
+    setSelected(item); setRun(null); setRuns([]); setReport(null); setPreview(null);
+    setRuns(await api<Run[]>('/cases/' + item.id + '/analyses'));
     setDocuments(await api<Document[]>('/cases/' + item.id + '/documents'));
+  }
+  async function openReport(item: Run) {
+    if (!item.report_id) return;
+    setReport(await api<Report>('/reports/' + item.report_id));
+    setPreview(null); setView('report');
+  }
+  async function saveRun(item: Run) {
+    setRun(item);
+    setRuns(previous => [item, ...previous.filter(r => r.id !== item.id)].sort((a,b) => b.created_at.localeCompare(a.created_at)));
+  }
+  async function removeRun(item: Run) {
+    if (!window.confirm('Delete this analysis, its report and review history? Uploaded documents will remain.')) return;
+    await api('/analyses/' + item.id, {method: 'DELETE'});
+    setRuns(previous => previous.filter(r => r.id !== item.id));
+    if (run?.id === item.id) setRun(null);
+    if (report?.run_id === item.id) {setReport(null); setPreview(null);}
+    setNotice('Analysis deleted. Uploaded documents were kept.');
   }
   async function inspect(ref: Ref) {
     if (!report) return;
@@ -138,15 +187,15 @@ function App() {
     <main><header><div><span className="eyebrow">HEALTH CLAIM EVIDENCE ASSISTANT</span><h1>{view === 'workspace' ? 'Claim workspace' : view === 'report' ? 'Evidence report' : 'Reviewer workspace'}</h1></div><span className="badge">Local workspace</span></header>
       {error && <div role="alert" className="alert">{error}</div>}{notice && <div role="status" className="notice">{notice}</div>}
       {!connected ? <section className="card"><h2>Open your local workspace</h2><p>Enter the local access token configured for this installation.</p><form onSubmit={e => {e.preventDefault(); void act(async () => {setCases(await api<ClaimCase[]>('/cases')); setConnected(true);});}}><label>Access token<input type="password" required value={token} onChange={e => setToken(e.target.value)} autoComplete="off" /></label><button disabled={busy}>Open workspace</button></form></section> : <>
-        <div className="case-bar"><label>Current case<select value={selected?.id || ''} onChange={e => {const item = cases.find(c => c.id === e.target.value); if (item) void act(() => choose(item));}}><option value="">Select a case</option>{cases.map(c => <option key={c.id} value={c.id}>{c.title} · {c.claim_reference}</option>)}</select></label><button className="secondary" onClick={() => {setConnected(false); setToken(''); setSelected(null); setReport(null); setRun(null); setDocuments([]); setPreview(null);}}>Lock workspace</button></div>
+        <div className="case-bar"><label>Current case<select value={selected?.id || ''} onChange={e => {const item = cases.find(c => c.id === e.target.value); if (item) void act(() => choose(item));}}><option value="">Select a case</option>{cases.map(c => <option key={c.id} value={c.id}>{c.title} · {c.claim_reference}</option>)}</select></label><button className="secondary" onClick={() => {setConnected(false); setToken(''); setSelected(null); setReport(null); setRun(null); setRuns([]); setDocuments([]); setPreview(null);}}>Lock workspace</button></div>
         <section className="card"><div className="section-heading"><div><h2>ChatGPT connection</h2><p>{chatgpt?.message || 'Checking the host connection…'}{chatgpt?.email && <><br/>Account: {chatgpt.email}</>}</p></div><div className="citations"><button disabled={busy || signingIn} onClick={connectChatGPT}>{signingIn ? 'Waiting for sign-in…' : 'Continue with ChatGPT'}</button><button className="secondary" disabled={busy} onClick={() => void act(async()=>{await refreshConnection();})}>Refresh connection</button>{chatgpt?.connected && <button className="secondary" disabled={busy} onClick={() => void act(async()=>{const result=await api<{revocation_confirmed:boolean}>('/auth/chatgpt/disconnect',{method:'POST'}); await refreshConnection(); setNotice(result.revocation_confirmed?'ChatGPT disconnected.':'Disconnected locally. Remote revocation was not confirmed; disconnect this app in ChatGPT Settings.');})}>Disconnect</button>}</div></div></section>
         {view === 'workspace' && <>
           <section className="card"><h2>Create a claim case</h2><form className="row" onSubmit={e => {e.preventDefault(); const form = e.currentTarget; const data = new FormData(form); void act(async () => {const item = await api<ClaimCase>('/cases', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({title:data.get('title'), claim_reference:data.get('reference')})}); setCases([item,...cases]); await choose(item); form.reset();});}}><label>Case title<input name="title" placeholder="Dengue hospitalization" required maxLength={200}/></label><label>Claim reference<input name="reference" placeholder="SYN-DEN-001" required maxLength={100}/></label><button disabled={busy}>Create case</button></form></section>
           {selected && <><section className="card"><h2>Add evidence</h2><p>Upload the insurer communication first, followed by relevant records, policy wording and acknowledgements.</p><form onSubmit={e => {e.preventDefault(); const form=e.currentTarget; const data = new FormData(form); if (!data.get('logical_id')) data.delete('logical_id'); void act(async () => {await api('/cases/'+selected.id+'/documents',{method:'POST',body:data}); setDocuments(await api<Document[]>('/cases/'+selected.id+'/documents')); form.reset();});}}><div className="row"><label>Document type<select name="kind">{['insurer_communication','clinical','bill','receipt','policy','schedule','endorsement'].map(k => <option key={k} value={k}>{k.replaceAll('_',' ')}</option>)}</select></label><label>Version of<select name="logical_id"><option value="">New document</option>{documents.filter((d,i,a) => a.findIndex(x => x.logical_id===d.logical_id)===i).map(d => <option key={d.logical_id} value={d.logical_id}>{d.filename}</option>)}</select></label><label>PDF or text<input type="file" name="file" accept=".pdf,.txt" required/></label></div><button disabled={busy}>Upload evidence</button></form></section>
-          <section className="card"><div className="section-heading"><h2>Document inventory</h2><button disabled={busy || !chatgpt?.connected || !chatgpt.model_available || !documents.some(d=>d.kind==='insurer_communication') || !!run && ['queued','running'].includes(run.status)} onClick={() => void act(async () => {setReport(null); setRun(await api<Run>('/cases/'+selected.id+'/analyses',{method:'POST'}));})}>Start analysis</button></div>{documents.length ? <table><thead><tr><th>Document</th><th>Type</th><th>Version</th><th>Extraction</th></tr></thead><tbody>{documents.map(d => <tr key={d.id}><td>{d.filename}</td><td>{d.kind.replaceAll('_',' ')}</td><td>{d.version}</td><td>{d.extraction_status}</td></tr>)}</tbody></table> : <p>No documents uploaded yet.</p>}
-          {run && <div role="status" className="progress"><strong>Analysis: {run.status}</strong>{run.error && <p>{run.error}</p>}{run.status==='paused' && <button disabled={busy || !chatgpt?.connected || !chatgpt.model_available} onClick={() => void act(async()=>{setRun(await api<Run>('/analyses/'+run.id+'/resume',{method:'POST'}));})}>Resume analysis</button>}</div>}</section></>}
+          <section className="card"><div className="section-heading"><h2>Document inventory</h2><button disabled={busy || !chatgpt?.connected || !chatgpt.model_available || !documents.some(d=>d.kind==='insurer_communication') || runs.some(item => ['queued','running'].includes(item.status))} onClick={() => void act(async () => {setReport(null); await saveRun(await api<Run>('/cases/'+selected.id+'/analyses',{method:'POST'}));})}>Start analysis</button></div>{documents.length ? <table><thead><tr><th>Document</th><th>Type</th><th>Version</th><th>Extraction</th></tr></thead><tbody>{documents.map(d => <tr key={d.id}><td>{d.filename}</td><td>{d.kind.replaceAll('_',' ')}</td><td>{d.version}</td><td>{d.extraction_status}</td></tr>)}</tbody></table> : <p>No documents uploaded yet.</p>}
+          {run && <div role="status" className="progress"><strong>Analysis: {run.status}</strong>{run.report_id && <p><button disabled={busy} onClick={() => void act(() => openReport(run))}>View report</button></p>}{run.error && <p>{run.error}</p>}{run.status==='paused' && <button disabled={busy || !chatgpt?.connected || !chatgpt.model_available} onClick={() => void act(async()=>{await saveRun(await api<Run>('/analyses/'+run.id+'/resume',{method:'POST'}));})}>Resume analysis</button>}</div>}</section><section className="card"><h2>Analysis history</h2><p role="status" className="muted">{liveStatus}</p><p>Previous analyses stay available while a new analysis runs.</p>{runs.length ? <table><thead><tr><th>Started</th><th>Status</th><th>Actions</th></tr></thead><tbody>{runs.map(item => <tr key={item.id}><td>{new Date(item.created_at).toLocaleString()}</td><td><strong>{item.status}</strong>{item.error && <p>{item.error}</p>}</td><td><div className="citations">{item.report_id && <button disabled={busy} onClick={() => void act(() => openReport(item))}>View report</button>}{item.status === 'paused' && <button className="secondary" disabled={busy || !chatgpt?.connected || !chatgpt.model_available} onClick={() => void act(async () => {await saveRun(await api<Run>('/analyses/'+item.id+'/resume', {method:'POST'}));})}>Resume</button>}<button className="secondary" disabled={busy || ['queued','running'].includes(item.status)} onClick={() => void act(() => removeRun(item))}>Delete</button></div></td></tr>)}</tbody></table> : <p>No analyses yet. Start an analysis using the documents above.</p>}</section></>}
         </>}
-        {(view === 'report' || view === 'review') && (!report ? <section className="card empty"><h2>Your report will appear here</h2><p>Start an analysis from the claim workspace, or open a saved report by its ID.</p><form onSubmit={e => {e.preventDefault(); const id = String(new FormData(e.currentTarget).get('report')); void act(async () => {setPreview(null); setReport(await api<Report>('/reports/'+encodeURIComponent(id)));});}}><label>Report ID<input name="report" required/></label><button disabled={busy}>Open report</button></form></section> : <>
+        {(view === 'report' || view === 'review') && (!report ? <section className="card empty"><h2>Choose a saved report</h2><p>Select a case and open a completed analysis below.</p>{runs.filter(item => item.report_id).map(item => <p key={item.id}><button disabled={busy} onClick={() => void act(() => openReport(item))}>View report — {new Date(item.created_at).toLocaleString()}</button></p>)}{!runs.some(item => item.report_id) && <p>No completed reports for this case yet.</p>}</section> : <>
           <section className="card"><div className="section-heading"><div><h2>Response package · version {report.version}</h2><p>{report.review_required ? 'Some findings need reviewer attention.' : 'Evidence analysis completed.'}</p></div><button onClick={download}>Download package</button></div></section>
           {report.findings.filter(f=>view!=='review'||f.review_required).map(f => <section className="card finding" key={f.request_id}><span className={'badge '+(f.review_required?'warning':'')}>{f.evidence_status.replaceAll('_',' ')}</span><h2>{report.requests.find(r=>r.request_id===f.request_id)?.text}</h2><p className="explanation">{f.explanation}</p><p><strong>Submission:</strong> {f.submission_status.replaceAll('_',' ')}</p><div className="citations">{[...f.evidence_refs,...f.policy_refs,...f.receipt_refs].map((ref,i)=><button className="secondary" key={i} onClick={() => void act(()=>inspect(ref))}>Source {i+1} · v{ref.version} · page {ref.page}</button>)}</div>{f.unresolved_questions.length>0 && <><h3>Unresolved</h3><ul>{f.unresolved_questions.map((q,i)=><li key={i}>{q}</li>)}</ul></>}<div className="next"><strong>Next action</strong><p>{f.next_action}</p></div>
             {view==='review' && <form onSubmit={e=>{e.preventDefault(); const data=new FormData(e.currentTarget); void act(async()=>{await api('/tasks/'+encodeURIComponent(report.run_id+':'+f.request_id)+'/review',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({decision:data.get('decision'),rationale:reviewNotes[f.request_id]||''})}); setNotice('Reviewer decision saved to the audit history.');});}}><label>Decision<select name="decision"><option value="approved">Approve finding</option><option value="request_evidence">Request evidence</option><option value="override">Record override</option></select></label><label>Rationale<textarea minLength={10} required value={reviewNotes[f.request_id]||''} onChange={e=>setReviewNotes({...reviewNotes,[f.request_id]:e.target.value})}/></label><button disabled={busy}>Record review</button></form>}

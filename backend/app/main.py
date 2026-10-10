@@ -1,3 +1,5 @@
+import asyncio
+import sqlite3
 import hashlib
 import hmac
 import json
@@ -7,7 +9,7 @@ from pathlib import Path
 from typing import Annotated, Literal
 from fastapi import Depends, FastAPI, File, Form, HTTPException, UploadFile, Cookie
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
+from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, StreamingResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from redis import Redis
 from rq import Queue
@@ -31,7 +33,7 @@ async def lifespan(app):
 
 app = FastAPI(title="Health Claim Evidence Assistant", version="0.1.0", lifespan=lifespan)
 app.add_middleware(CORSMiddleware, allow_origins=settings().cors_origins,
-                   allow_methods=["GET", "POST"], allow_headers=["Authorization", "Content-Type"])
+                   allow_methods=["GET", "POST", "DELETE"], allow_headers=["Authorization", "Content-Type"])
 app.add_middleware(RequestLoggingMiddleware)
 auth = HTTPBearer(auto_error=False)
 
@@ -171,7 +173,76 @@ def analyze(case_id: str, user: User):
         db.execute(connection, "INSERT INTO analyses VALUES (:id,:case,:owner,:thread,'queued',:inputs,NULL,NULL,:time)",
                    id=run_id, case=case_id, owner=user["owner"], thread=db.uid(), inputs=json.dumps([d["id"] for d in selected]), time=db.now())
     enqueue(run_id)
+    from .notifications import notify_case
+    notify_case(case_id)
     return run_for(run_id, user)
+
+@app.get("/cases/{case_id}/analyses")
+def list_analyses(case_id: str, user: User):
+    case_for(case_id, user)
+    return db.rows("SELECT * FROM analyses WHERE case_id=:case AND owner=:owner ORDER BY created_at DESC, id DESC", case=case_id, owner=user["owner"])
+
+@app.get("/cases/{case_id}/analysis-events")
+async def analysis_events(case_id: str, user: User):
+    from redis.asyncio import Redis as AsyncRedis
+    from starlette.concurrency import run_in_threadpool
+    await run_in_threadpool(case_for, case_id, user)
+    redis = AsyncRedis.from_url(settings().redis_url, socket_connect_timeout=2)
+    pubsub = redis.pubsub()
+    try:
+        # Subscribe before taking the snapshot so completion cannot fall into a gap.
+        await pubsub.subscribe("case-analyses:" + case_id)
+    except Exception:
+        await pubsub.aclose()
+        await redis.aclose()
+        raise HTTPException(503, "Live notifications unavailable; retry the connection")
+
+    async def events():
+        try:
+            snapshot = await run_in_threadpool(list_analyses, case_id, user)
+            yield "data: " + json.dumps(snapshot) + "\n\n"
+            while True:
+                message = await pubsub.get_message(ignore_subscribe_messages=True, timeout=15)
+                if message:
+                    snapshot = await run_in_threadpool(list_analyses, case_id, user)
+                    yield "data: " + json.dumps(snapshot) + "\n\n"
+                else:
+                    yield ": keepalive\n\n"
+                await asyncio.sleep(0.05)
+        finally:
+            await pubsub.aclose()
+            await redis.aclose()
+    return StreamingResponse(events(), media_type="text/event-stream",
+                             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+
+@app.delete("/analyses/{run_id}")
+def delete_analysis(run_id: str, user: User):
+    from filelock import FileLock, Timeout
+    from langgraph.checkpoint.sqlite import SqliteSaver
+    run = run_for(run_id, user)
+    lock = settings().data_dir / "runtime" / ("analysis-" + run["id"] + ".lock")
+    lock.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        with FileLock(str(lock), timeout=0):
+            with db.transaction() as connection:
+                # Serialize deletion against resume and worker status transitions.
+                db.execute(connection, "UPDATE analyses SET status=status WHERE id=:id", id=run_id)
+                current = db.execute(connection, "SELECT status FROM analyses WHERE id=:id", id=run_id).scalar()
+                if current in {"queued", "running"}:
+                    raise HTTPException(409, "Wait for the analysis to finish before deleting it")
+                checkpoint = settings().data_dir / "checkpoints.sqlite"
+                if checkpoint.exists():
+                    with sqlite3.connect(str(checkpoint), check_same_thread=False) as checkpoint_connection:
+                        SqliteSaver(checkpoint_connection).delete_thread(run["thread_id"])
+                db.execute(connection, "DELETE FROM reviews WHERE task_id IN (SELECT id FROM tasks WHERE run_id=:id)", id=run_id)
+                db.execute(connection, "DELETE FROM tasks WHERE run_id=:id", id=run_id)
+                db.execute(connection, "DELETE FROM reports WHERE run_id=:id", id=run_id)
+                db.execute(connection, "DELETE FROM analyses WHERE id=:id", id=run_id)
+    except Timeout:
+        raise HTTPException(409, "The analysis is still finishing; try again shortly")
+    from .notifications import notify_case
+    notify_case(run["case_id"])
+    return {"deleted": True}
 
 @app.get("/analyses/{run_id}")
 def analysis(run_id: str, user: User):
@@ -187,6 +258,8 @@ def resume(run_id: str, user: User):
         if updated.rowcount != 1:
             raise HTTPException(409, "Run was already resumed")
     enqueue(run_id)
+    from .notifications import notify_case
+    notify_case(run["case_id"])
     return run_for(run_id, user)
 
 @app.get("/reports/{report_id}")

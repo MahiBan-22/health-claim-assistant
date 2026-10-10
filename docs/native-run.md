@@ -112,3 +112,18 @@ Official references:
 - https://developers.openai.com/siwc/token-sharing-open-source/sign-in
 - https://developers.openai.com/siwc/token-sharing-open-source/profiles-and-sessions
 - https://developers.openai.com/siwc/token-sharing-open-source/models-and-inference
+
+## Analysis history and reports
+
+Select a case to see Analysis history, including earlier runs while a new run is
+active. Completed runs have a View report button; no report ID entry is needed.
+Paused runs can be resumed. Delete asks for confirmation and removes the run, its
+report, review records and graph checkpoint while keeping uploaded documents.
+Queued/running analyses cannot be deleted.
+
+Analysis status uses an authenticated server-sent event connection per selected
+case. The worker publishes status changes through Redis; the API sends updated
+history over the existing connection. Heartbeats keep it open without querying
+SQLite. Reconnects use a fresh snapshot to recover missed changes. The UI displays
+connection health and retries interrupted connections with a bounded backoff.
+ChatGPT sign-in checks are separate from analysis notifications.
