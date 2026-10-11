@@ -1,8 +1,8 @@
 # Native Windows runtime with Docker infrastructure
 
 Run FastAPI, the RQ worker and Vite on Windows. Docker runs Redis only by default.
-This lets browser sign-in and model calls use the Windows user's protected
-Credential Manager without sharing ChatGPT tokens with a container.
+The API and worker run as your Windows user, so model calls go through the Codex CLI
+you are signed in to and no model credentials are shared with a container.
 
 ## Start
 
@@ -33,35 +33,35 @@ execution policy rather than changing the system-wide policy:
 
     powershell -ExecutionPolicy Bypass -File .\scripts\start-native.ps1 -SkipInstall
 
-## Connect ChatGPT
+## Model access
 
-1. Open http://127.0.0.1:5173. The workspace opens directly.
-2. Choose Connect AI to analyse in the top bar and click Continue with ChatGPT. Allow the browser popup.
-3. Sign in, select the intended workspace, and authorize the requested plan-use
-   permissions. The first registration uses this application's own name.
-4. On the completion page, close the sign-in tab and return to the workspace.
-5. Refresh connection if needed. Analysis is enabled only if the account's model
-   catalog contains the configured gpt-6-luna model. There is no silent fallback.
-6. Start a new analysis, or use Resume on a paused run under Analyses.
+The workspace has no sign-in. Analyses and scan reading run through the Codex CLI
+signed in for the Windows user that starts the app.
 
-The sign-in route is http://127.0.0.1:8000/auth/chatgpt/callback. Keep the native
-API running while completing sign-in. A stable, opaque host ID is stored under
- data/runtime/. OAuth state, PKCE, browser cookie binding, issuer, signature,
-audience, nonce and granted permissions are validated. Each token set is stored
-in the OS credential vault, chunked to fit Windows credential-size limits.
-Refreshes are serialized across the API and worker using a local file lock.
-The browser and .env never receive access or refresh tokens.
+1. Install the Codex CLI and run `codex login` once in a terminal. `codex login status`
+   should then report that you are logged in.
+2. Start the app and open http://127.0.0.1:5173. The header shows All systems ready
+   when the CLI is signed in and its account lists the configured gpt-6-luna model.
+   There is no silent fallback to another model.
+3. If the header shows AI engine unavailable, open it to read why (CLI not found,
+   signed out, or model not listed), fix that in a terminal and choose Check again.
+4. Start a new analysis, or use Resume on a paused run under Analyses.
 
-The current UI uses the profile selected by OAUTH_ACCOUNT (default: default).
-Use a different profile label for a different account/workspace registration and
-restart both native processes. A full multi-account picker is not yet implemented.
-Disconnect clears local tokens, retains the verified account/client registration,
-and attempts remote session revocation. If revocation cannot be confirmed, the
-UI directs you to disconnect the app in ChatGPT Settings.
+Each model call starts one `codex exec` process with the CLI's tools switched off, a
+read-only sandbox, an empty temporary working directory and no saved session. The
+application never opens the CLI's credential files and holds no tokens of its own;
+the CLI refreshes its sign-in itself. OPENAI_API_KEY and CODEX_API_KEY are removed
+from the CLI's environment, so the signed-in account is always the one used. The
+browser and .env never receive model credentials.
 
-Account entitlement and model availability must be checked during a real sign-in.
-Local tests do not establish eligibility, quota, or a successful live Luna call.
-A purchased API key is neither needed by nor used by this connection path.
+Set CODEX_PATH to the CLI's full path when `codex` is not on the PATH of the API and
+worker processes, then restart both. To change accounts, run `codex logout` and
+`codex login` in a terminal; the workspace notices within about a minute.
+
+Every analysis spends the signed-in account's usage, and each call also carries the
+CLI's own instructions, so token counts are higher than the claim text alone. Account
+entitlement and model availability are established only by a real run: the test suite
+never starts the CLI.
 
 ## Database and files
 
@@ -87,8 +87,7 @@ Wait for active analysis work to finish, then:
 
 This stops only the recorded native process trees after checking their start times
 and executable paths. Redis and data remain. Restart with start-native.ps1
--SkipInstall. Avoid restarting during sign-in: pending OAuth transactions are
-short-lived and held by the API process.
+-SkipInstall.
 
 An analysis interrupted by a stop, crash or reboot is not lost. On start the worker
 takes data/runtime/worker.lock, moves any run left as running back to queued and
@@ -102,8 +101,8 @@ Optional old container mode:
 
     docker compose --profile containers up -d --build
 
-This mode still lacks an OS-vault bridge for live model access; use native mode
-for host ChatGPT sign-in. Default docker compose up -d starts Redis only.
+Its images carry neither the Codex CLI nor a sign-in, so live model access is
+unavailable there; use native mode. Default docker compose up -d starts Redis only.
 
 The Windows worker executes one job at a time in process with timer-based
 timeouts. Process isolation is pending.
@@ -113,15 +112,13 @@ timeouts. Process isolation is pending.
     .\backend\.venv\Scripts\python.exe -m app.runtime_probe
 
 This enqueues a non-medical probe to confirm that a native Windows worker can
-reach Redis and the OS credential backend. It never returns credentials.
-Scanned PDF pages and pictures inside Word files are read by the connected model.
-Tesseract is only a fallback for when ChatGPT is not connected; PDFs with a text
+reach Redis and the Codex CLI. It reports the CLI's state in words and never returns
+credentials. Scanned PDF pages and pictures inside Word files are read by the model.
+Tesseract is only a fallback for when the AI engine is unavailable; PDFs with a text
 layer, Word files and UTF-8 text need neither.
 
-Official references:
-- https://developers.openai.com/siwc/token-sharing-open-source/sign-in
-- https://developers.openai.com/siwc/token-sharing-open-source/profiles-and-sessions
-- https://developers.openai.com/siwc/token-sharing-open-source/models-and-inference
+Official reference:
+- https://learn.chatgpt.com/docs/non-interactive-mode
 
 ## Analysis history and reports
 
@@ -136,4 +133,4 @@ Analysis status uses a server-sent event connection per selected claim. The work
 history over the existing connection. Heartbeats keep it open without querying
 SQLite. Reconnects use a fresh snapshot to recover missed changes. The UI displays
 connection health and retries interrupted connections with a bounded backoff.
-ChatGPT sign-in checks are separate from analysis notifications.
+AI engine status checks are separate from analysis notifications.

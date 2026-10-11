@@ -255,15 +255,13 @@ async function workspace(page: Page) {
         model: "gpt-6-luna",
         counts: { cases: 1, documents: 3, analyses: 2, reports: 1, active: 0 },
       };
-    else if (path === "/auth/chatgpt/status")
+    else if (path === "/system/model")
       body = {
         connected: true,
-        storage_available: true,
-        email: "test@example.test",
+        model_available: true,
         model: "gpt-6-luna",
+        message: "The AI engine is connected and gpt-6-luna is available.",
       };
-    else if (path === "/auth/chatgpt/models")
-      body = { selected_model_available: true };
     else if (path.endsWith("/documents") && method === "POST")
       body = {
         id: "doc-new",
@@ -581,4 +579,48 @@ test("workflow chart shows each step, and the landing page stands without the si
   await page.getByRole("button", { name: "Open claim" }).click();
   await expect(sidebar).toBeVisible();
   expect(errors).toEqual([]);
+});
+
+test("the AI engine is reported by the server and never signed in to from the browser", async ({
+  page,
+}) => {
+  const saved = await workspace(page);
+  const requested: string[] = [];
+  page.on("request", (request) =>
+    requested.push(new URL(request.url()).pathname),
+  );
+  await page.route("http://127.0.0.1:8000/system/model", (route) =>
+    route.fulfill({
+      json: {
+        connected: false,
+        model_available: false,
+        model: "gpt-6-luna",
+        message:
+          "The AI engine is signed out on the server. An administrator needs to run codex login there.",
+      },
+    }),
+  );
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.goto("/#/case/case-1");
+  await expect(page.getByRole("heading", { name: claim.title })).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: "The AI engine is not available" }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Run analysis" }),
+  ).toBeDisabled();
+
+  await page.getByRole("button", { name: "See AI engine status" }).click();
+  const dialog = page.getByRole("dialog", { name: "AI analysis engine" });
+  await expect(dialog.getByText(/signed out on the server/)).toBeVisible();
+  await expect(
+    dialog.getByRole("button", { name: "Check again" }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: /ChatGPT|Sign in|Disconnect/i }),
+  ).toHaveCount(0);
+  await dialog.getByRole("button", { name: "Check again" }).click();
+  await expect(dialog.getByText(/signed out on the server/)).toBeVisible();
+  expect(requested.filter((path) => path.startsWith("/auth/"))).toEqual([]);
+  expect(saved).toEqual([]);
 });

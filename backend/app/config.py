@@ -40,8 +40,8 @@ class Settings(BaseSettings):
     neatlogs_sample_rate: float = Field(default=1.0, ge=0, le=1)
     neatlogs_shutdown_timeout_ms: int = Field(default=5000, ge=100, le=30000)
     llm_model: str = "gpt-6-luna"
-    oauth_account: str = "default"
-    oauth_redirect_uri: str = "http://127.0.0.1:8000/auth/chatgpt/callback"
+    # Analyses run through the Codex CLI signed in for this OS user. Give a full path when it is not on PATH.
+    codex_path: str = "codex"
     max_upload_bytes: int = Field(default=20 * 1024 * 1024, gt=0)
     max_pages: int = Field(default=100, gt=0)
     max_context_chars: int = Field(default=60000, gt=0)

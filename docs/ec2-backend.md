@@ -44,13 +44,26 @@ The launcher pulls and starts Redis in Docker automatically; no host Redis insta
 is needed. Redis is the only required container service. SQLite is built into Python.
 Install Tesseract and English language data if you need OCR without a model connection.
 Package names vary between Amazon Linux releases; this script deliberately does not
-change OS packages. Verify before deployment:
+change OS packages.
+
+Install the Codex CLI for `ec2-user` and sign in once. Analyses run through that
+sign-in; the application has no sign-in of its own:
+
+```bash
+codex login --device-auth     # no browser on the server: approve the code from your own machine
+codex login status            # expect a logged-in account
+command -v codex              # note this path; see CODEX_PATH below
+```
+
+If ChatGPT refuses the code, allow device-code sign-in for Codex in your ChatGPT
+security settings and repeat the command. Verify before deployment:
 
 ```bash
 python3.12 --version
 python3.12 -m pip --version
 docker info
 docker compose version
+codex login status
 tesseract --version           # optional OCR prerequisite
 mkdir -p /home/ec2-user/claim-wise-build /home/ec2-user/claim-wise-backend
 ```
@@ -93,8 +106,11 @@ The script checks the checksum when present, extracts into the backend folder, p
 Redis if its image is missing, and waits for the container to become healthy. It creates
 `.venv` using `python3.12`, installs requirements, copies `.env` with mode 600 and starts
 the API plus RQ worker using `.venv/bin/python3.12`. Docker runs infrastructure only.
-The API defaults to `127.0.0.1:8000`.
-Check `curl http://127.0.0.1:8000/health` from another EC2 terminal.
+The API defaults to `127.0.0.1:8000`. Before starting it the launcher prints an
+`AI engine:` line saying whether the Codex CLI is installed, signed in and lists the
+configured model; a problem there is reported but does not stop the start.
+Check `curl http://127.0.0.1:8000/health` and `curl http://127.0.0.1:8000/system/model`
+from another EC2 terminal.
 This command stays in the foreground; Ctrl+C stops both processes. A worker may finish
 its current job during shutdown. Redis stays running, with data in the Docker volume
 `claim-wise-infra_redis-data`. File logs are under `claim-wise-backend/logs/`.
@@ -132,6 +148,8 @@ Wants=network-online.target
 [Service]
 Type=simple
 User=ec2-user
+# Include the directory of `command -v codex`, and of `node` if Codex was installed with npm.
+Environment=PATH=/home/ec2-user/.local/bin:/usr/local/bin:/usr/bin:/bin
 WorkingDirectory=/home/ec2-user/claim-wise-build
 ExecStart=/bin/bash /home/ec2-user/claim-wise-build/ec2-run.sh
 Restart=on-failure
@@ -181,14 +199,30 @@ uv export --project backend --frozen --no-dev --no-emit-project --no-hashes --ou
 Then rebuild and upload. Use Python 3.12 for this deployment; other Python versions
 have not been validated by this workflow.
 
-## Existing live-analysis limitation
+## Model access on EC2
 
-The current application requires a supported secure OS credential vault and a loopback
-OAuth callback. A typical headless EC2 machine has no unlocked Secret Service/KWallet
-session, so the API and worker can run but live model analysis remains unavailable.
-Windows Credential Manager tokens are not included in the package and cannot simply
-be copied to Linux. Adding an API key to `.env` does not enable the current adapter.
-A server-compatible authentication/storage implementation is separate application work.
+The API and worker call the Codex CLI as `ec2-user`, using the account that
+`codex login` signed in. The application holds no model credentials, opens none of the
+CLI's files and offers no sign-in in the browser. `GET /system/model` reports whether
+the CLI is installed, signed in and lists `LLM_MODEL`; the launcher prints the same
+message at start.
+
+- **Signed out or expired:** run `codex login --device-auth` as `ec2-user`. No restart
+  is needed; the workspace notices within about a minute.
+- **"The Codex CLI is not installed on the server, or CODEX_PATH does not point to
+  it":** set `CODEX_PATH` in `/home/ec2-user/claim-wise-build/.env` to the output of
+  `command -v codex`, or put its directory on the service's `PATH`, then restart.
+  This is the usual cause under systemd, whose `PATH` is shorter than a login shell's.
+- **Model not listed:** the signed-in account has no access to `LLM_MODEL`. No other
+  model is used.
+- **Same OS user:** run the service as the user that ran `codex login`. Another user,
+  or a different `HOME` or `CODEX_HOME`, has no sign-in.
+- **API keys:** `OPENAI_API_KEY` and `CODEX_API_KEY` are removed from the CLI's
+  environment on purpose, so only the signed-in account is used.
+
+Every analysis from every visitor spends that one account's usage, and a reached usage
+limit pauses analyses until it resets. Each model call is one `codex exec` run with the
+CLI's tools switched off and no saved session.
 
 The application also has no user authentication or tenant isolation. Keep this backend
 private or behind an authenticated access layer before using real claim records.

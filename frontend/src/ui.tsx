@@ -102,7 +102,7 @@ export const ExtractionChip = ({
       <Chip
         tone="warn"
         label="Picture unread"
-        title="A picture in this file could not be read. Connect the AI engine and add the file again."
+        title="A picture in this file could not be read. Add the file again once the AI engine is available."
       />
     );
   if (document.ai_pages)

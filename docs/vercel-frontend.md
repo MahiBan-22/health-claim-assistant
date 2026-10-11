@@ -47,8 +47,6 @@ Use the exact frontend origin, without a path or trailing slash. Use your custom
 instead if that is the URL you open. The current backend supports one configured
 frontend origin; arbitrary Vercel preview domains will not be accepted. Hostnames have
 no scheme or port; both the EC2 and frontend hostname are listed for proxy routing.
-Keep the existing loopback OAuth callback; changing it to the Vercel URL is unsupported
-by the current backend auth implementation.
 
 Stop the backend and restart it so the launcher copies the updated `.env`:
 
@@ -79,5 +77,8 @@ Streaming status requests reconnect automatically; a proxy may close long connec
 Validate large uploads and long document extraction requests against the hosted proxy's
 limits. The build can be checked locally with `cd frontend` and `npm run build`.
 
-The existing headless EC2 credential-vault limitation still applies to live AI analysis.
-This frontend configuration does not add server authentication or model credentials.
+Live analysis uses the Codex CLI signed in on the EC2 host (see
+[ec2-backend.md](ec2-backend.md)); the frontend offers no sign-in and holds no model
+credentials. Deploy the backend before a frontend build that expects `GET /api/system/model`.
+This frontend configuration does not add server authentication: every visitor's analysis
+spends the host account's usage.

@@ -30,7 +30,7 @@ import {
 import { api, send } from "../api";
 import { useApp } from "../app-context";
 
-/** The header pill: what state the workspace is in, and whether the next step is connecting the AI engine. */
+/** The header pill: what state the workspace is in, and whether it opens the AI engine's status. */
 export type Health = {
   label: string;
   tone: string;

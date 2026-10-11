@@ -9,9 +9,9 @@ import zipfile
 from contextlib import asynccontextmanager, closing
 from pathlib import Path
 from typing import Annotated, Literal
-from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, UploadFile, Cookie
+from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse, Response, StreamingResponse
+from fastapi.responses import FileResponse, JSONResponse, Response, StreamingResponse
 from starlette.concurrency import run_in_threadpool
 from . import db, intake, trace_store
 from .config import settings
@@ -19,8 +19,6 @@ from .extraction import extract
 from .jobs import enqueue, queue_status
 from .schemas import CaseCreate, CaseUpdate, ChecklistUpdate, DraftUpdate, Inquiry, Review
 from .logging_setup import configure_logging, RequestLoggingMiddleware
-from .chatgpt_auth import ChatGPTConnection
-from .errors import ModelPaused
 from .tools import document_references
 
 logger = logging.getLogger(__name__)
@@ -30,7 +28,7 @@ DocumentKind = Literal["insurer_communication", "clinical", "bill", "receipt", "
 @asynccontextmanager
 async def lifespan(app):
     configure_logging("api", settings())
-    logging.getLogger("uvicorn.access").disabled = True  # OAuth codes/tickets must not enter raw access logs.
+    logging.getLogger("uvicorn.access").disabled = True  # Requests are logged once, by route template, without query strings.
     from . import observability
     observability.initialize("api", settings())
     logger.info("api_started")
@@ -191,7 +189,7 @@ def store_document(case_id, data, filename, kind, logical_id=None):
 @app.get("/health")
 def health():
     db.engine()
-    return {"status": "ok", "model": settings().llm_model, "authentication": "local workspace", "oauth_setup": "host_sign_in"}
+    return {"status": "ok", "model": settings().llm_model, "authentication": "local workspace", "model_access": "codex_cli"}
 
 @app.get("/system/status")
 def system_status(user: User):
@@ -225,7 +223,7 @@ def integrations(user: User):
                      "analyses_traced": counts["traced"], "steps_recorded": counts["steps"]},
         "entire": {"enabled": bool(entire.get("enabled")), "configured": bool(entire)},
         "cfo_ai": {"export": "/business/metrics.csv", "months": len(trace_store.monthly_metrics()), "analyses": counts["analyses"]},
-        "stack": {name: package_version(name) for name in ("langgraph", "fastapi", "pydantic", "sqlalchemy", "rq", "redis", "pymupdf", "httpx", "keyring")},
+        "stack": {name: package_version(name) for name in ("langgraph", "fastapi", "pydantic", "sqlalchemy", "rq", "redis", "pymupdf", "httpx")},
         "model": config.llm_model,
     }
 
@@ -592,67 +590,8 @@ def create_inquiry(body: Inquiry, user: User):
 def list_inquiries(user: User):
     return db.rows("SELECT * FROM inquiries ORDER BY created_at DESC")
 
-@app.get("/auth/chatgpt/status")
-def chatgpt_status(user: User):
-    return ChatGPTConnection().status()
-
-@app.post("/auth/chatgpt/start")
-def chatgpt_start(user: User):
-    try:
-        return ChatGPTConnection().start()
-    except ModelPaused as error:
-        raise HTTPException(503, str(error)) from error
-    except Exception as error:
-        logger.error("chatgpt_signin_start_failed", exc_info=True)
-        raise HTTPException(503, "ChatGPT sign-in could not start; inspect local logs") from error
-
-@app.get("/auth/chatgpt/browser")
-def chatgpt_browser(ticket: str):
-    try:
-        url, binding = ChatGPTConnection().browser(ticket)
-    except ModelPaused as error:
-        raise HTTPException(400, str(error)) from error
-    response = RedirectResponse(url, status_code=303)
-    response.set_cookie("cea_chatgpt_binding", binding, httponly=True, samesite="lax", max_age=600, path="/auth/chatgpt")
-    response.headers["Cache-Control"] = "no-store"
-    response.headers["Referrer-Policy"] = "no-referrer"
-    return response
-
-@app.get("/auth/chatgpt/callback")
-def chatgpt_callback(state: str = "", code: str | None = None, client_id: str | None = None,
-                     error: str | None = None, cea_chatgpt_binding: Annotated[str | None, Cookie()] = None):
-    from html import escape
-    status = 200
-    try:
-        ChatGPTConnection().finish(state, cea_chatgpt_binding, code, client_id, error)
-        message = "ChatGPT is connected. Close this tab and return to the claim workspace."
-        logger.info("chatgpt_signin_completed")
-    except ModelPaused as failure:
-        status, message = 400, str(failure)
-        logger.warning("chatgpt_signin_incomplete")
-    except Exception:
-        status, message = 400, "ChatGPT identity validation or connection failed. Close this tab and start sign-in again."
-        logger.error("chatgpt_signin_failed", exc_info=True)
-    response = HTMLResponse("<!doctype html><html lang='en'><meta charset='utf-8'><title>ChatGPT connection</title><h1>ChatGPT connection</h1><p>" + escape(message) + "</p></html>", status_code=status)
-    response.delete_cookie("cea_chatgpt_binding", path="/auth/chatgpt")
-    response.headers["Cache-Control"] = "no-store"
-    response.headers["Referrer-Policy"] = "no-referrer"
-    response.headers["Content-Security-Policy"] = "default-src 'none'; frame-ancestors 'none'"
-    return response
-
-@app.get("/auth/chatgpt/models")
-def chatgpt_models(user: User):
-    try:
-        return ChatGPTConnection().models()
-    except ModelPaused as error:
-        raise HTTPException(503, str(error)) from error
-    except Exception as error:
-        logger.error("chatgpt_catalog_failed", exc_info=True)
-        raise HTTPException(503, "ChatGPT model catalog unavailable; retry or reconnect") from error
-
-@app.post("/auth/chatgpt/disconnect")
-def chatgpt_disconnect(user: User):
-    try:
-        return ChatGPTConnection().disconnect()
-    except ModelPaused as error:
-        raise HTTPException(503, str(error)) from error
+@app.get("/system/model")
+def model_status(user: User):
+    """Whether the host's Codex CLI can run analyses. Its sign-in is managed on the server, never from a browser."""
+    from . import codex
+    return codex.status()

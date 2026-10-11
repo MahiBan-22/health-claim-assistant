@@ -58,12 +58,13 @@ technical trace screen is added to the customer workspace.
   control flow separately. No provider auto-instrumentation adds duplicate calls.
 - Extraction, retrieval, page reads, inventory, receipts and deterministic source
   checks; document UUID/version pairs, counts, correction counts and outcomes.
-- API route templates, method, status, duration; OAuth and long-lived SSE routes
+- API route templates, method, status, duration; long-lived SSE routes
   are excluded from request tracing.
-- Model slug, streaming completion/failure, duration, first-token timing, chunks,
-  and provider-returned input/output/total/cache/reasoning tokens when present.
+- Model slug, completion/failure, duration, and the input/output/total/cache/reasoning
+  tokens the Codex CLI reports for each run. Every run carries the CLI's own base
+  instructions, so input counts are higher than the claim text alone.
 
-No dollar cost is estimated from ChatGPT plan tokens. Local cost_usd is null;
+No dollar cost is estimated from the Codex account's plan tokens. Local cost_usd is null;
 NeatLogs may display a provider value of zero, which is not a billing measurement.
 Missing token usage is distinguishable from zero using calls_with_usage.
 
@@ -106,7 +107,7 @@ lose its buffered telemetry; stop only after active jobs finish.
 Local Doctor is network-free. Hosted Doctor verifies its own four-span trace,
 not the claim application. Both must report neatlogs.doctor/v2, Python, schema 2.
 
-To exercise the actual graph and OAuth model adapter on fictional documents:
+To exercise the actual graph and the Codex model adapter on fictional documents:
 
     .\backend\.venv\Scripts\python.exe -m app.observability_smoke
 

@@ -16,8 +16,9 @@ The home-screen section that displayed it was removed from the landing page on
 | Entire | "Give your coding agent repository context." | Enabled in this repository on 10 October 2026. | The repository's `origin` is hosted on Entire. `entire enable` installed hooks for Claude Code and Codex and git hooks; checkpoints are stored as git refs and sync to `origin` on push. Settings are in `.entire/settings.json`. |
 | cfo.ai | "Plan the business with cfo.ai" and include the plan in the submission. | Export bridge built; **the plan itself still has to be created in cfo.ai**. | `GET /business/metrics.csv` exports monthly totals measured by the app; open http://127.0.0.1:8000/business/metrics.csv to download it (the home-screen button went with that section). Nothing in this repository can create the plan: it needs a cfo.ai account. |
 
-Optional resources not used: Crustdata, LiteLLM, AWS. The model is gpt-6-luna through
-Sign in with ChatGPT.
+Optional resources not used: Crustdata, LiteLLM. The backend can be hosted on AWS EC2
+([ec2-backend.md](ec2-backend.md)). The model is gpt-6-luna through the host's Codex CLI
+sign-in.
 
 ## Still to do by a person
 

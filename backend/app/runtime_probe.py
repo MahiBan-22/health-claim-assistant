@@ -1,13 +1,13 @@
-"""Non-medical diagnostic for native RQ execution and OS-vault availability."""
+"""Non-medical diagnostic for native RQ execution and the worker's access to the Codex CLI."""
 import platform
 import time
 from redis import Redis
 from rq import Queue
+from . import codex
 from .config import settings
-from .credentials import CredentialStore
 
 def worker_probe():
-    return {"platform": platform.system(), "credential_backend": type(CredentialStore(settings()).vault()).__name__,
+    return {"platform": platform.system(), "model_access": codex.status()["message"],
             "data_dir": str(settings().data_dir.resolve())}
 
 if __name__ == "__main__":

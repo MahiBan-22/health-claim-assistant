@@ -36,9 +36,19 @@ def upload(client, case, content=b"Claim reference: C-1\nFinal signed summary", 
 
 def test_workspace_opens_without_a_login(client):
     assert client.get("/cases").status_code == 200
-    assert client.get("/health").json()["authentication"] == "local workspace"
+    health = client.get("/health").json()
+    assert health["authentication"] == "local workspace" and health["model_access"] == "codex_cli"
     status = client.get("/system/status").json()
     assert status["database"] and status["workers"] == 1 and status["counts"]["cases"] == 0
+
+def test_model_access_is_reported_and_cannot_be_changed_from_the_browser(client, monkeypatch):
+    # The suite runs as a host without the Codex CLI: the workspace says so instead of offering a sign-in.
+    status = client.get("/system/model").json()
+    assert status["connected"] is False and status["model"] == "gpt-6-luna" and "Codex CLI" in status["message"]
+    monkeypatch.setattr("app.codex.status", lambda: {"connected": True, "model_available": True, "model": "gpt-6-luna", "message": "ready"})
+    assert client.get("/system/model").json()["connected"] is True
+    for method, path in (("get", "/auth/chatgpt/status"), ("post", "/auth/chatgpt/start"), ("post", "/auth/chatgpt/disconnect")):
+        assert getattr(client, method)(path).status_code == 404
 
 
 def test_impact_empty_workspace(client):

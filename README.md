@@ -5,7 +5,7 @@ workspace that reconciles an insurer's letter with the customer's documents and 
 shows what is supported and what is missing, and drafts a reply with page-level citations.
 
 **Recommended: native Windows API, worker and UI, with Redis in Docker.**
-See [native setup and ChatGPT sign-in](docs/native-run.md).
+See [native setup and model access](docs/native-run.md).
 For a backend-only Windows package and EC2 extraction/startup workflow, see
 [EC2 backend deployment](docs/ec2-backend.md).
 For dashboard-based frontend deployment, see [Vercel frontend setup](docs/vercel-frontend.md).
@@ -42,18 +42,19 @@ Read the [architecture review and verification record](docs/architecture-review.
   (planner, policy, evidence, verifier, correction loops, packaging), live while it runs.
 - A monthly usage export for the cfo.ai business model (`GET /business/metrics.csv`) and a
   report of how neatlogs, Entire and cfo.ai are used here (`GET /system/integrations`).
-- OAuth-only model adapter configured to **gpt-6-luna** for every application LLM call.
+- A model adapter over the host's Codex CLI, configured to **gpt-6-luna** for every application LLM call.
 
 **This is a working localhost build, not a production service.** Chroma/BGE retrieval, selective
-invalidation of findings, historical version comparison inside one analysis, multi-account
-selection and live partner integrations other than NeatLogs tracing remain pending. Live
-inference pauses without an authorized credential and an account-visible Luna model. Test
-replay is never used as live inference.
+invalidation of findings, historical version comparison inside one analysis and live partner
+integrations other than NeatLogs tracing remain pending. Live inference pauses when the host's
+Codex CLI is signed out or its account does not list the Luna model. Test replay is never used
+as live inference.
 
 ## Local setup
 
-Use Python 3.12, Node 22+ and Redis. Tesseract is optional: it reads scans only when ChatGPT
-is not connected. Native Windows uses RQ SimpleWorker with timer-based timeouts; Linux uses
+Use Python 3.12, Node 22+, Redis and the Codex CLI, signed in once with `codex login` as the
+OS user that runs the API and worker. Tesseract is optional: it reads scans only when the AI
+engine is unavailable. Native Windows uses RQ SimpleWorker with timer-based timeouts; Linux uses
 the standard RQ worker.
 
 The quickest path on Windows is `.\scripts\start-native.ps1`, described in
@@ -79,8 +80,9 @@ The quickest path on Windows is `.\scripts\start-native.ps1`, described in
 
    Set PYTHONPATH=backend for the worker, or install the package as in step 3.
 6. In frontend/, run npm ci, then npm run dev -- --host 127.0.0.1.
-7. Open http://127.0.0.1:5173. Choose **Connect AI to analyse** in the top bar and continue
-   with ChatGPT once. API docs are at http://127.0.0.1:8000/docs.
+7. Open http://127.0.0.1:5173. There is no sign-in in the workspace: if the header reports
+   the AI engine as unavailable, run `codex login` in a terminal. API docs are at
+   http://127.0.0.1:8000/docs.
 
 Relative DATA_DIR paths are resolved from the command directory: API and worker must share
 the same working directory and storage location. The header pill and the System status panel
@@ -126,22 +128,29 @@ the expected behaviour and the recorded live results.
 
 Ports bind to 127.0.0.1; Redis is private to Compose. Data is stored in named volumes.
 Stop with docker compose down to preserve the volumes. The container skeleton runs
-API/UI/queue processes but has no OS-vault bridge: host keyring credentials are not visible
-inside Linux containers, so live inference there remains blocked. Use native mode for live
-analysis. The frontend image runs Vite for localhost development, not production hosting.
+API/UI/queue processes, but its images carry neither the Codex CLI nor a sign-in, so live
+inference there remains blocked. Use native mode for live analysis. The frontend image runs Vite for localhost development, not production hosting.
 
 After a backend code change, load it with `docker compose up -d --build --no-deps api worker`.
 
 ## Model connection
 
-All planner/specialist calls share LLM_MODEL=gpt-6-luna. The adapter queries the signed-in
-account's model catalog and requires that exact slug. It uses the public Responses endpoint,
-store=false, stream=true, and a completed terminal event. Rate-limit and server errors get a
-small bounded retry; a malformed answer is re-asked once. It never reads OPENAI_API_KEY,
-browser credentials, or Codex authentication files.
+All planner/specialist calls share LLM_MODEL=gpt-6-luna and run through the Codex CLI signed
+in for the OS user that runs the API and worker (`codex login`, or `codex login --device-auth`
+on a server without a browser). The workspace has no sign-in of its own: `GET /system/model`
+reports whether the CLI is installed, signed in and lists that exact model, and nothing in the
+browser can connect or disconnect it.
 
-Tokens are obtained through the supported loopback OAuth flow and stored in the OS credential
-vault. The native API and worker must run under the same OS user. See docs/native-run.md.
+Each call is one `codex exec` run with the CLI's tools switched off, a read-only sandbox, an
+empty working directory and no saved session; the prompt goes in on standard input. An answer
+counts only after the run reports a completed turn, and a run in which the model used a tool is
+discarded. Failed runs get a small bounded retry; a malformed answer is re-asked once. The
+adapter never opens the CLI's credential files, and it removes OPENAI_API_KEY and CODEX_API_KEY
+from the CLI's environment so that only the signed-in account is used. Set CODEX_PATH when
+`codex` is not on the service's PATH. See docs/native-run.md.
+
+Every analysis, whoever starts it, spends that one account's usage, and the workspace has no
+login. Keep a hosted deployment private or behind an authenticated access layer.
 
 ## Reading documents
 
@@ -156,14 +165,13 @@ vault. The native API and worker must run under the same OS user. See docs/nativ
 Pages read by the model carry `method: "luna"` and are labelled "Read by AI" in the document
 list and the page viewer. The reader is told to copy, not interpret: it writes `[illegible]`
 instead of guessing, marks `[signature]`, `[stamp]` and `[seal]`, and reports a page with no
-text as blank. Without a ChatGPT connection the upload still succeeds: Tesseract is tried if
-installed, otherwise a scan is stored as unreadable and an unread picture is counted on its
-page. Add the file again after connecting. Older `.doc` files and image files are refused.
+text as blank. When the AI engine is unavailable the upload still succeeds: Tesseract is tried
+if installed, otherwise a scan is stored as unreadable and an unread picture is counted on its
+page. Add the file again once the engine is available. Older `.doc` files and image files are refused.
 
 Official references:
 - https://developers.openai.com/api/docs/models/gpt-6-luna
-- https://developers.openai.com/siwc/token-sharing-open-source/models-and-inference
-- https://developers.openai.com/siwc/token-sharing-open-source/sign-in
+- https://learn.chatgpt.com/docs/non-interactive-mode
 
 ## Checks
 

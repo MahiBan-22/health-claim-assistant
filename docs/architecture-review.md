@@ -38,8 +38,8 @@ therefore starts with a vertical slice and tracks remaining capabilities explici
 | Durability | Queue delivery can repeat; report side effects must be idempotent. | SQLite graph checkpoints, stable thread IDs, atomic report/task writes, unique run/report relation. The worker restarts its loop after a Redis timeout and, holding an OS-level lock, re-queues runs a stopped worker left behind. |
 | New evidence | Dependency invalidation needs provenance edges between inputs, findings, and tasks. | Full reanalysis of newest versions, prior report retention. Selective task invalidation is pending. |
 | Review | Review is an auditable event, not a silent rewrite of history. | Append-only decision, rationale and reviewer name tied to the run task; a review desk lists flagged findings across claims and the report shows the decision history. The package itself is unchanged; revised reviewed reports remain pending. |
-| Model connection | A ChatGPT subscription cannot be assumed to authorize an arbitrary model or application. | OAuth-only adapter, live catalog check, `gpt-6-luna` default, completed-stream requirement; missing access pauses processing. |
-| OAuth lifecycle | PKCE, state, nonce, grant validation, refresh rotation, account switching, and keyring storage are a separate subsystem. | Native browser sign-in, PKCE, verified identity, scoped grants, serialized refresh rotation and Windows Credential Manager storage are implemented. Profile selection uses OAUTH_ACCOUNT; a multi-account picker remains pending. No Codex credentials are read. |
+| Model connection | A ChatGPT subscription cannot be assumed to authorize an arbitrary model or application. | Adapter over the host's Codex CLI (`codex exec`, tools off, nothing saved), catalog check, `gpt-6-luna` default, completed-turn requirement; missing access pauses processing. |
+| Model sign-in | PKCE, state, nonce, grant validation, refresh rotation, account switching, and keyring storage are a separate subsystem. | Since 11 October 2026 the application holds no model credentials. The Codex CLI on the host keeps and refreshes its own sign-in; the application runs the CLI, never opens its credential files, and only reports its state. The earlier in-app Sign in with ChatGPT flow and its OS-vault storage were removed: a headless server has no OS vault, and a hosted workspace must not let visitors connect or disconnect the account. This departs from the specification's OAuth adapter. |
 | Observability | Raw case inputs and credentials must not enter partner traces. | NeatLogs SDK export, graph callbacks, custom model/tool spans, client-side metadata allowlisting, local metrics and read-only MCP investigation are implemented. Live synthetic tracing and hosted Doctor were verified; no clinical quality score is claimed. |
 | Partners | Entire, cfo.ai, and Crustdata have separate development/business roles. | No live partner writes or claims of connected integrations. No health records sent to business tools. |
 
@@ -59,7 +59,7 @@ There is no fixture inference mode in the running application; scripted model
 replay exists only in tests and does not measure live agent quality.
 
 This milestone is not the documentation's completed MVP. Native Windows API/UI/worker
-share the OS credential vault, while Docker runs Redis only. The Windows worker
+run as the OS user whose Codex CLI is signed in, while Docker runs Redis only. The Windows worker
 executes one job at a time in process with timer-based timeouts; process isolation
 remains future work. Recovery after termination is implemented and was exercised
 (see Verification status).
@@ -151,11 +151,31 @@ Reading accuracy on real-world scans (the live check used clean synthetic pages)
 an adversarial fixture, other partner integrations and statistical accuracy
 remain unverified.
 
+### Model access through the host's Codex CLI, 11 October 2026
+
+The backend suite passes **123 tests**. The new ones cover the CLI command line (tools
+off, read-only sandbox, nothing saved, prompt on standard input), refusal of a CLI that
+cannot switch its tools off, discarding an answer when the model used a tool, failure
+classification, sign-out and missing-model status, and that API keys never reach the CLI.
+The suite never starts the real CLI. The frontend type-checks and builds, and ten browser
+tests pass in headless Chrome against intercepted responses, including one that the
+workspace offers no sign-in and calls no sign-in route.
+
+Checked live on Windows against gpt-6-luna through a signed-in Codex CLI 0.162.1: the
+mixed-format fixtures were uploaded through the running API (both scanned pages and the
+stamp picture were read by the model), and one analysis completed in 78 s with 7 model
+calls, 80,243 tokens and no correction, giving the three outcomes fixtures/formats
+describes. Each call carries the CLI's own instructions, about 10,000 input tokens.
+With the listed features switched off, a prompt telling the model to read a local file
+by any means returned that it could not.
+
+Not verified: the same path on the EC2 host, behaviour at the account's usage limit,
+and how a CLI version with different feature names behaves beyond failing closed.
+
 ## Official model connection references
 
 - https://developers.openai.com/api/docs/models/gpt-6-luna
-- https://developers.openai.com/siwc/token-sharing-open-source/models-and-inference
-- https://developers.openai.com/siwc/token-sharing-open-source/sign-in
+- https://learn.chatgpt.com/docs/non-interactive-mode
 
 Account-specific model access and eligibility still need a real authorized smoke
 test. External services and model calls transmit selected input data off-machine.

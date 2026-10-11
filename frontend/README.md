@@ -29,7 +29,7 @@ Browser tests cover opening without a login, document search, timeline, analysis
 
 ## Components
 
-- `src/App.tsx`: routing, data loading, live updates, ChatGPT connection and the shell.
+- `src/App.tsx`: routing, data loading, live updates, AI engine status and the shell.
 - `src/app-context.ts`: routes, dialog types and the shared app context.
 - `src/api.ts`: fetch helpers, file saving and the event stream reader.
 - `src/lib.ts`: status meanings, category labels and the glossary.

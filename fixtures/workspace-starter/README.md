@@ -37,6 +37,6 @@ Upload that file without editing it or changing its encoding; otherwise the hash
 will correctly cease to match.
 
 These are expected evaluation targets, not recorded live model results. Uploads
-can be tested now. Live analysis requires the application's authorized ChatGPT
-connection. Run the native workspace and select Continue with ChatGPT before
+can be tested now. Live analysis requires the host's Codex CLI to be signed in.
+Run the native workspace and check that the header reports all systems ready before
 starting analysis; account access to the configured Luna model is checked.

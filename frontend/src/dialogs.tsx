@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
-  ArrowUpRight,
   BookOpenText,
   CircleCheck,
   CloudUpload,
@@ -254,7 +253,7 @@ export function UploadDialog({
         )}
         {app.ready
           ? "Typed text is copied exactly. Scanned pages and pictures inside Word files are read by the AI model, a few seconds per page, and labelled so you can compare them with the original."
-          : "The AI engine is not connected, so scanned pages and pictures inside Word files cannot be read yet. Typed text in PDF and Word files is still copied exactly."}
+          : "The AI engine is not available right now, so scanned pages and pictures inside Word files cannot be read yet. Typed text in PDF and Word files is still copied exactly."}
       </p>
       {pending.length > 0 && (
         <ul className="mt-5 max-h-[32vh] space-y-2.5 overflow-y-auto pr-1">
@@ -464,7 +463,7 @@ export function DocumentDialog({
               />
               {shown.method === "luna"
                 ? "Read by AI: text on this page came from a scan or picture and was transcribed by the AI model. Check names, dates and amounts against the original."
-                : "A picture on this page could not be read, so its text is missing here. Connect the AI engine and add the file again."}
+                : "A picture on this page could not be read, so its text is missing here. Add the file again once the AI engine is available."}
             </p>
           )}
           <pre className="prose-doc max-h-[52vh] overflow-y-auto">
@@ -481,7 +480,7 @@ export function DocumentDialog({
                 "This page is blank in the original."
               )
             ) : shown.readable === false ? (
-              "This page is a scan or picture that could not be read. Connect the AI engine and add the file again, or add a clearer copy."
+              "This page is a scan or picture that could not be read. Add the file again once the AI engine is available, or add a clearer copy."
             ) : (
               parts[0]
             )}
@@ -515,23 +514,18 @@ export function DocumentDialog({
   );
 }
 
+/** The AI engine is signed in on the server, so this only reports its state: there is nothing to connect here. */
 export function ConnectionDialog({
-  signingIn,
-  connect,
   refresh,
-  disconnect,
 }: {
-  signingIn: boolean;
-  connect: () => void;
   refresh: () => Promise<unknown>;
-  disconnect: () => Promise<void>;
 }) {
   const app = useApp();
   const status = app.connection;
   return (
     <Modal
       title="AI analysis engine"
-      subtitle="Analyses run on your own ChatGPT plan. Sign-in happens on this computer; no key or password is stored in the browser."
+      subtitle="Analyses run on the AI model connected to this workspace's server. There is nothing to sign in to, and no key or password is stored in the browser."
       close={() => app.open(null)}
     >
       <div
@@ -549,12 +543,14 @@ export function ConnectionDialog({
           <h3 className="font-bold">
             {app.ready
               ? "Connected and ready"
-              : status?.connected
-                ? "Connected, model unavailable"
-                : "Not connected yet"}
+              : !status
+                ? "Checking the AI engine"
+                : status.connected
+                  ? "Connected, model unavailable"
+                  : "Not available right now"}
           </h3>
           <p className="truncate text-sm opacity-90">
-            {status?.email ?? "ChatGPT"} · {status?.model ?? "model"}
+            {status?.model ?? "model"}
           </p>
         </div>
       </div>
@@ -563,34 +559,13 @@ export function ConnectionDialog({
       </p>
       <div className="flex flex-wrap gap-3">
         <button
-          className="btn btn-primary"
-          disabled={app.busy || signingIn}
-          onClick={connect}
-        >
-          {signingIn
-            ? "Waiting for sign-in..."
-            : status?.connected
-              ? "Sign in again"
-              : "Continue with ChatGPT"}
-          <ArrowUpRight size={16} />
-        </button>
-        <button
           className="btn btn-soft"
           disabled={app.busy}
           onClick={() => void app.act(async () => void (await refresh()))}
         >
           <RotateCcw size={16} />
-          Refresh
+          Check again
         </button>
-        {status?.connected && (
-          <button
-            className="btn btn-ghost"
-            disabled={app.busy}
-            onClick={() => void app.act(disconnect)}
-          >
-            Disconnect
-          </button>
-        )}
       </div>
     </Modal>
   );
@@ -640,8 +615,8 @@ export function SystemDialog({ system }: { system: SystemStatus | null }) {
           name: "AI model",
           ok: app.ready,
           detail: app.ready
-            ? system.model + " is available on your ChatGPT plan."
-            : "Connect ChatGPT to run analyses.",
+            ? system.model + " is connected to this workspace."
+            : (app.connection?.message ?? "Checking the AI engine..."),
         },
         {
           name: "Scans and pictures",
@@ -652,8 +627,8 @@ export function SystemDialog({ system }: { system: SystemStatus | null }) {
               system.model +
               "."
             : system.ocr
-              ? "Read by Tesseract on this computer. Connect ChatGPT for the AI model to read them instead."
-              : "Connect ChatGPT to read scanned pages and pictures. Typed text in PDF and Word files works without it.",
+              ? "Read by Tesseract while the AI engine is unavailable."
+              : "Scanned pages and pictures need the AI engine. Typed text in PDF and Word files works without it.",
         },
       ]
     : [];

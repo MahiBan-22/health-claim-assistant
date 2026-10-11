@@ -13,7 +13,7 @@ Create a claim with the reference SYN-DEMO-001, then add all four.
 | 03-itemized-bill.pdf | PDF with a text layer and a table | Text layer copied exactly; the model is not called |
 | 04-bill-acknowledgement.docx | Word letter with a table and a picture of a desk stamp | Typed text copied exactly; the stamp picture read by the connected model |
 
-Files 02 and 04 need ChatGPT connected. Without it the scan is stored as unreadable and the
+Files 02 and 04 need the AI engine available. Without it the scan is stored as unreadable and the
 stamp is counted as an unread picture, unless Tesseract is installed.
 
 ## Live result recorded on 11 October 2026

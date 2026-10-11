@@ -93,7 +93,7 @@ export function CaseView({
   const steps = [
     { label: "Insurer's letter", done: hasLetter },
     { label: "Your documents", done: hasSupport },
-    { label: "AI connected", done: app.ready },
+    { label: "AI engine ready", done: app.ready },
     { label: "Analysis", done: reports.length > 0, working: active },
     { label: "Reply ready", done: reports.length > 0 && !stale },
   ];
@@ -123,10 +123,10 @@ export function CaseView({
           }
         : !app.ready
           ? {
-              title: "Connect the AI engine",
-              text: "Sign in with ChatGPT once on this computer to let the assistant read your documents.",
+              title: "The AI engine is not available",
+              text: "Analyses are paused until the workspace's AI engine is back. You can keep adding documents meanwhile.",
               action: {
-                label: "Connect ChatGPT",
+                label: "See AI engine status",
                 run: () => app.open({ type: "connection" }),
               },
             }
@@ -204,7 +204,7 @@ export function CaseView({
                 !hasLetter
                   ? "Add the insurer's letter first"
                   : !app.ready
-                    ? "Connect ChatGPT first"
+                    ? "The AI engine is not available right now"
                     : undefined
               }
             >

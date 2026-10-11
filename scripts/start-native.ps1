@@ -40,7 +40,6 @@ try {
     $env:LOG_DIR = $logDirectory
     $env:REDIS_URL = "redis://127.0.0.1:6379/0"
     $env:APP_ORIGIN = "http://127.0.0.1:5173"
-    $env:OAUTH_REDIRECT_URI = "http://127.0.0.1:8000/auth/chatgpt/callback"
     $apiProcess = Start-Process -FilePath $pythonExecutable -ArgumentList @("-m","uvicorn","app.main:app","--host","127.0.0.1","--port","8000","--no-access-log") -WorkingDirectory $repoRoot -WindowStyle Hidden -PassThru -RedirectStandardOutput (Join-Path $logDirectory "api-console.log") -RedirectStandardError (Join-Path $logDirectory "api-console-error.log")
     $workerProcess = Start-Process -FilePath $pythonExecutable -ArgumentList @("-m","app.worker") -WorkingDirectory $repoRoot -WindowStyle Hidden -PassThru -RedirectStandardOutput (Join-Path $logDirectory "worker-console.log") -RedirectStandardError (Join-Path $logDirectory "worker-console-error.log")
     $nodeExecutable = (Get-Command node).Source
@@ -53,11 +52,11 @@ try {
     "[" + ($entries -join ",") + "]" | Set-Content -LiteralPath (Join-Path $runtimeDirectory "native-processes.json") -Encoding utf8
     $ready = $false
     for ($attempt=0; $attempt -lt 30; $attempt++) {
-        try { $health = Invoke-RestMethod "http://127.0.0.1:8000/health" -TimeoutSec 2; $ready = $health.oauth_setup -eq "host_sign_in"; if ($ready) { break } } catch {}
+        try { $health = Invoke-RestMethod "http://127.0.0.1:8000/health" -TimeoutSec 2; $ready = $health.model_access -eq "codex_cli"; if ($ready) { break } } catch {}
         Start-Sleep -Milliseconds 300
     }
     if (-not $ready) { throw "Native API failed to start. Inspect logs/api-console-error.log." }
     if ($workerProcess.HasExited -or $uiProcess.HasExited) { throw "A native service stopped during startup. Inspect logs/ console-error files." }
     Write-Host "Native workspace ready: http://127.0.0.1:5173"
-    Write-Host "No login is needed. Choose Connect AI to analyse in the top bar to connect ChatGPT; tokens stay in this Windows user's credential store."
+    Write-Host "No login is needed. Analyses run through the Codex CLI signed in for this Windows user; run 'codex login' once if the workspace reports the AI engine as signed out."
 } finally { Pop-Location }

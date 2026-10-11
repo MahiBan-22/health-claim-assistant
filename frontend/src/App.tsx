@@ -89,7 +89,6 @@ export function App() {
   const [system, setSystem] = useState<SystemStatus | null>(null);
   const [reachable, setReachable] = useState(true);
   const [connection, setConnection] = useState<Connection | null>(null);
-  const [signingIn, setSigningIn] = useState(false);
   const [dialog, setDialog] = useState<Dialog | null>(null);
   const [pending, setPending] = useState<Pending | null>(null);
   const [toasts, setToasts] = useState<Toast[]>([]);
@@ -104,10 +103,6 @@ export function App() {
   const toastId = useRef(0);
   const anchor = useRef<string | null>(null);
   const statuses = useRef(new Map<string, string>());
-  const signIn = useRef<{ started: number; popup: Window | null }>({
-    started: 0,
-    popup: null,
-  });
   setReviewerMode(reviewer);
 
   const caseId =
@@ -118,7 +113,7 @@ export function App() {
       : null;
   const reportId = route.view === "report" ? route.reportId : null;
   const item = cases?.find((c) => c.id === caseId) ?? null;
-  const ready = !!connection?.connected && !!connection.model_available;
+  const ready = !!connection?.connected && connection.model_available;
 
   const toast = useCallback((kind: Toast["kind"], text: string) => {
     const id = ++toastId.current;
@@ -177,27 +172,9 @@ export function App() {
     async () => setCases(await api<ClaimCase[]>("/cases")),
     [],
   );
+  // The AI engine is signed in on the server; the workspace only reports whether it can run.
   const refreshConnection = useCallback(async () => {
-    const status = await api<Connection>("/auth/chatgpt/status");
-    if (status.connected) {
-      try {
-        const catalog = await api<{ selected_model_available: boolean }>(
-          "/auth/chatgpt/models",
-        );
-        status.model_available = catalog.selected_model_available;
-        status.message = catalog.selected_model_available
-          ? "ChatGPT is connected and the analysis model is available."
-          : "Your ChatGPT account does not list " +
-            (status.model ?? "the configured model") +
-            ". Analyses are paused; no other model is used.";
-      } catch (e) {
-        status.model_available = false;
-        status.message =
-          e instanceof Error
-            ? e.message
-            : "The model list is unavailable right now.";
-      }
-    }
+    const status = await api<Connection>("/system/model");
     setConnection(status);
     return status;
   }, []);
@@ -208,9 +185,9 @@ export function App() {
       fail(e.message);
     });
     void api<Sample[]>("/samples").then(setSamples, () => undefined);
-    void refreshConnection().catch(() => undefined);
-    const check = () =>
-      api<SystemStatus>("/system/status").then(
+    const check = () => {
+      void refreshConnection().catch(() => undefined);
+      return api<SystemStatus>("/system/status").then(
         (status) => {
           setSystem(status);
           setReachable(true);
@@ -220,6 +197,7 @@ export function App() {
           setReachable(false);
         },
       );
+    };
     void check();
     const timer = window.setInterval(check, 8000);
     return () => window.clearInterval(timer);
@@ -287,59 +265,6 @@ export function App() {
       cancelled = true;
     };
   }, [reportId, reviewer]);
-
-  useEffect(() => {
-    if (!signingIn) return;
-    let cancelled = false;
-    const timer = window.setInterval(() => {
-      if (
-        Date.now() - signIn.current.started > 600000 ||
-        signIn.current.popup?.closed
-      ) {
-        setSigningIn(false);
-        void refreshConnection().catch(() => undefined);
-        return;
-      }
-      void api<Connection>("/auth/chatgpt/status").then(
-        async (status) => {
-          if (cancelled || !status.connected) return;
-          setSigningIn(false);
-          await refreshConnection();
-          notify("ChatGPT connected.");
-        },
-        () => !cancelled && setSigningIn(false),
-      );
-    }, 2500);
-    return () => {
-      cancelled = true;
-      window.clearInterval(timer);
-    };
-  }, [signingIn]);
-
-  function connect() {
-    // Open the window during the click so the browser does not block it.
-    const popup = window.open(
-      "",
-      "claim-chatgpt-signin",
-      "width=650,height=780",
-    );
-    if (!popup)
-      return fail(
-        "Allow pop-ups for this page, then choose Continue with ChatGPT again.",
-      );
-    signIn.current = { started: Date.now(), popup };
-    void act(async () => {
-      try {
-        popup.location.href = (
-          await send<{ sign_in_url: string }>("/auth/chatgpt/start", "POST")
-        ).sign_in_url;
-        setSigningIn(true);
-      } catch (e) {
-        popup.close();
-        throw e;
-      }
-    });
-  }
 
   const setReviewer = (value: boolean) => {
     setReviewerMode(value);
@@ -414,19 +339,26 @@ export function App() {
           dot: "bg-warn",
           connect: false,
         }
-      : !ready
+      : !connection
         ? {
-            label: "Connect AI to analyse",
+            label: "Checking AI engine",
             tone: "bg-sky-100 text-sky-900",
             dot: "bg-sky-500",
             connect: true,
           }
-        : {
-            label: "All systems ready",
-            tone: "bg-emerald-100 text-emerald-900",
-            dot: "bg-good animate-pulse-ring",
-            connect: false,
-          };
+        : !ready
+          ? {
+              label: "AI engine unavailable",
+              tone: "bg-amber-100 text-amber-950",
+              dot: "bg-warn",
+              connect: true,
+            }
+          : {
+              label: "All systems ready",
+              tone: "bg-emerald-100 text-emerald-900",
+              dot: "bg-good animate-pulse-ring",
+              connect: false,
+            };
   const nav = useMemo(
     () => [
       {
@@ -636,9 +568,11 @@ export function App() {
                   <small className="block truncate text-xs font-normal text-white/70">
                     {ready
                       ? "Connected"
-                      : connection?.connected
-                        ? "Model unavailable"
-                        : "Connect ChatGPT"}
+                      : !connection
+                        ? "Checking..."
+                        : connection.connected
+                          ? "Model unavailable"
+                          : "Not available"}
                   </small>
                 </span>
               </button>
@@ -896,7 +830,7 @@ export function App() {
                 (missed.length === 1
                   ? missed[0].filename + " has"
                   : missed.length + " documents have") +
-                  " scanned pages or pictures that could not be read. Connect the AI engine and add the file again, or add a clearer copy.",
+                  " scanned pages or pictures that could not be read. Add the file again once the AI engine is available, or add a clearer copy.",
               );
           }}
         />
@@ -911,23 +845,7 @@ export function App() {
         />
       )}
       {dialog?.type === "connection" && (
-        <ConnectionDialog
-          signingIn={signingIn}
-          connect={connect}
-          refresh={refreshConnection}
-          disconnect={async () => {
-            const result = await send<{ revocation_confirmed: boolean }>(
-              "/auth/chatgpt/disconnect",
-              "POST",
-            );
-            await refreshConnection();
-            notify(
-              result.revocation_confirmed
-                ? "ChatGPT disconnected."
-                : "Disconnected on this computer. Also remove this app in ChatGPT Settings to finish.",
-            );
-          }}
-        />
+        <ConnectionDialog refresh={refreshConnection} />
       )}
       {dialog?.type === "system" && <SystemDialog system={system} />}
       {dialog?.type === "glossary" && <GlossaryDialog />}

@@ -84,6 +84,9 @@ config.data_dir.mkdir(parents=True, exist_ok=True)
 config.log_dir.mkdir(parents=True, exist_ok=True)
 Redis.from_url(config.redis_url, socket_connect_timeout=5, socket_timeout=5).ping()
 print("Configuration loaded; Redis reachable.")
+# Analyses run through this user's Codex CLI sign-in. A missing or signed-out CLI is reported, not fatal.
+from app import codex
+print("AI engine:", codex.status()["message"])
 PY
 # Use SSH forwarding or an authenticated reverse proxy for access.
 "$VENV/bin/python3.12" -m uvicorn app.main:app --host "${BIND_HOST:-127.0.0.1}" --port "${PORT:-8000}" --no-access-log &

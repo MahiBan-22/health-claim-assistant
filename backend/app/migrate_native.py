@@ -23,7 +23,7 @@ def migrate(directory: Path):
                 raise RuntimeError("A copied original document failed its hash check")
             updates.append((str(target), document_id))
         connection.executemany("UPDATE documents SET path=? WHERE id=?", updates)
-        connection.execute("UPDATE analyses SET status='paused',error='Paused during native migration; connect ChatGPT and resume' WHERE status IN ('queued','running')")
+        connection.execute("UPDATE analyses SET status='paused',error='Paused during native migration; resume to continue' WHERE status IN ('queued','running')")
         counts = {table: connection.execute("SELECT COUNT(*) FROM " + table).fetchone()[0] for table in ("cases", "documents", "analyses", "reports")}
     return counts
 

@@ -1,6 +1,6 @@
 """Page text from uploads.
 
-A text layer is copied exactly. Pages and pictures without one are read by the signed-in
+A text layer is copied exactly. Pages and pictures without one are read by the
 model, with Tesseract as the local fallback, and are marked so the reader can compare them
 with the original.
 """
@@ -13,7 +13,6 @@ from concurrent.futures import ThreadPoolExecutor
 from io import BytesIO
 from pathlib import Path
 from xml.etree import ElementTree
-import httpx
 from .config import settings
 from .errors import ModelPaused
 from .observability import traced
@@ -29,14 +28,10 @@ BLANK = "BLANK"
 SKIPPED = {"Fallback", "del", "moveFrom", "pPr", "rPr", "tblPr", "tblPrEx", "tblGrid", "trPr", "tcPr", "sectPr"}
 
 def luna_reader():
-    """The signed-in model's page reader, or None when ChatGPT is not connected."""
+    """The model's page reader, or None when the host's Codex CLI cannot run it."""
     from .model import LunaModel
     model = LunaModel()
-    try:
-        model.credential()
-    except (ModelPaused, httpx.HTTPError):
-        return None
-    return model.transcribe
+    return model.transcribe if model.available() else None
 
 def _ocr(image: bytes) -> str:
     import pytesseract
@@ -61,7 +56,7 @@ def _read_images(images: list[bytes], reader) -> list[tuple[str, str, bool]]:
                     return "", "luna", True
                 if text:
                     return text, "luna", False
-            except (ModelPaused, httpx.HTTPError, ValueError):
+            except (ModelPaused, ValueError):
                 pass
         return _ocr(image), "ocr", False
 

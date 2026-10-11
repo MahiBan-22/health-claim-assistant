@@ -155,13 +155,12 @@ export type SystemStatus = {
     active: number;
   };
 };
+/** The server's AI engine as GET /system/model reports it. */
 export type Connection = {
   connected: boolean;
-  storage_available: boolean;
-  email?: string | null;
-  message?: string;
-  model?: string;
-  model_available?: boolean;
+  model_available: boolean;
+  model: string;
+  message: string;
 };
 export type TimelineEvent = {
   date: string;

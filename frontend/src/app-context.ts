@@ -62,7 +62,7 @@ export type App = {
   reviewerName: string;
   system: SystemStatus | null;
   connection: Connection | null;
-  /** True when ChatGPT is connected and the configured model is listed for the account. */
+  /** True when the server's AI engine is signed in and lists the configured model. */
   ready: boolean;
 };
 

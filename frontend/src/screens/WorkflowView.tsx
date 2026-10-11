@@ -48,7 +48,7 @@ const ROLE: Record<
 > = {
   "claim.catalog": {
     title: "AI model check",
-    does: "Confirms the analysis model is available on your ChatGPT plan.",
+    does: "Confirms the analysis model is available to this workspace.",
     icon: Sparkles,
     tone: "from-slate-500 to-slate-600",
     skill: "State",
