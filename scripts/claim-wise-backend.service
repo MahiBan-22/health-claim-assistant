@@ -1,0 +1,22 @@
+[Unit]
+Description=Claimwise API and worker
+After=network-online.target docker.service
+Requires=docker.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ec2-user
+Environment=PATH=/home/ec2-user/.local/bin:/usr/local/bin:/usr/bin:/bin
+Environment=BIND_HOST=0.0.0.0
+Environment=PORT=8000
+WorkingDirectory=/home/ec2-user/claim-wise-build
+ExecStart=/bin/bash /home/ec2-user/claim-wise-build/ec2-run.sh
+Restart=on-failure
+RestartSec=10
+TimeoutStopSec=660
+KillMode=control-group
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

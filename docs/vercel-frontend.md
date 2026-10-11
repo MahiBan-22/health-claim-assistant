@@ -36,6 +36,10 @@ changing them. The optional example is in `frontend/.env.example`.
 
 ## Configure the EC2 backend after getting your Vercel URL
 
+To build, test and deploy backend changes automatically, follow
+[the GitHub Actions setup](ec2-github-actions.md). It installs and starts the
+backend service; the `.env` settings and network access below still apply.
+
 Edit `/home/ec2-user/claim-wise-build/.env`, replacing `YOUR-PROJECT`:
 
 ```dotenv

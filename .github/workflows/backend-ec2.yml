@@ -1,0 +1,165 @@
+name: Backend build, test and EC2 deployment
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "backend/**"
+      - "fixtures/**"
+      - "scripts/build_backend.py"
+      - "scripts/ec2-run.sh"
+      - "scripts/ec2-infrastructure.yaml"
+      - "scripts/deploy-ec2.sh"
+      - "scripts/claim-wise-backend.service"
+      - "docs/ec2-backend*"
+      - ".github/workflows/backend-ec2.yml"
+  pull_request:
+    branches: [main]
+    paths:
+      - "backend/**"
+      - "fixtures/**"
+      - "scripts/build_backend.py"
+      - "scripts/ec2-run.sh"
+      - "scripts/ec2-infrastructure.yaml"
+      - "scripts/deploy-ec2.sh"
+      - "scripts/claim-wise-backend.service"
+      - "docs/ec2-backend*"
+      - ".github/workflows/backend-ec2.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# Never interrupt an in-progress deployment or let two runs replace the same files.
+concurrency:
+  group: backend-ec2-${{ github.ref }}
+  cancel-in-progress: false
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  build-test:
+    name: Build, test and package
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    env:
+      NEATLOGS_ENABLED: "false"
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Set up uv and Python 3.12
+        uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+        with:
+          python-version: "3.12"
+          enable-cache: true
+          cache-dependency-glob: backend/uv.lock
+
+      - name: Install locked backend and test dependencies
+        run: uv sync --project backend --locked --extra test --python 3.12
+
+      - name: Check Python and deployment script syntax
+        run: |
+          backend/.venv/bin/python -m compileall -q backend/app
+          bash -n scripts/ec2-run.sh
+          bash -n scripts/deploy-ec2.sh
+
+      - name: Test backend
+        working-directory: backend
+        run: .venv/bin/python -m pytest -q
+
+      - name: Create and verify tar.gz package
+        run: |
+          backend/.venv/bin/python scripts/build_backend.py
+          cp scripts/deploy-ec2.sh scripts/claim-wise-backend.service dist/claim-wise-build/
+          cd dist/claim-wise-build
+          sha256sum --check claim-wise-backend.tar.gz.sha256
+
+      - name: Save tested deployment package
+        uses: actions/upload-artifact@v7
+        with:
+          name: claim-wise-backend-${{ github.sha }}
+          if-no-files-found: error
+          retention-days: 7
+          compression-level: 0
+          # Explicit files: never upload the generated .env or local credentials.
+          path: |
+            dist/claim-wise-build/claim-wise-backend.tar.gz
+            dist/claim-wise-build/claim-wise-backend.tar.gz.sha256
+            dist/claim-wise-build/ec2-run.sh
+            dist/claim-wise-build/deploy-ec2.sh
+            dist/claim-wise-build/claim-wise-backend.service
+
+  deploy:
+    name: Deploy to EC2
+    needs: build-test
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    environment: production
+    env:
+      REMOTE_UPLOAD_DIR: /home/ec2-user/claim-wise-build/.incoming-${{ github.run_id }}-${{ github.run_attempt }}
+    steps:
+      - name: Download tested deployment package
+        uses: actions/download-artifact@v8
+        with:
+          name: claim-wise-backend-${{ github.sha }}
+          path: package
+
+      - name: Configure SSH
+        env:
+          EC2_HOST: ${{ secrets.EC2_HOST }}
+          EC2_SSH_PRIVATE_KEY: ${{ secrets.EC2_SSH_PRIVATE_KEY }}
+          EC2_SSH_KNOWN_HOSTS: ${{ secrets.EC2_SSH_KNOWN_HOSTS }}
+        run: |
+          : "${EC2_HOST:?Set the EC2_HOST GitHub secret}"
+          : "${EC2_SSH_PRIVATE_KEY:?Set the EC2_SSH_PRIVATE_KEY GitHub secret}"
+          : "${EC2_SSH_KNOWN_HOSTS:?Set the EC2_SSH_KNOWN_HOSTS GitHub secret}"
+          [[ "$EC2_HOST" =~ ^[a-zA-Z0-9][a-zA-Z0-9.-]*$ ]] || { echo "Invalid EC2_HOST" >&2; exit 1; }
+          ssh_dir="$RUNNER_TEMP/claim-wise-ssh"
+          SSH_CONFIG="$ssh_dir/config"
+          install -d -m 700 "$ssh_dir"
+          printf '%s\n' "$EC2_SSH_PRIVATE_KEY" | tr -d '\r' > "$ssh_dir/id_ec2"
+          printf '%s\n' "$EC2_SSH_KNOWN_HOSTS" | tr -d '\r' > "$ssh_dir/known_hosts"
+          chmod 600 "$ssh_dir/id_ec2" "$ssh_dir/known_hosts"
+          cat > "$SSH_CONFIG" <<EOF
+          Host claim-wise-ec2
+            HostName $EC2_HOST
+            User ec2-user
+            Port 22
+            IdentityFile "$ssh_dir/id_ec2"
+            UserKnownHostsFile "$ssh_dir/known_hosts"
+            IdentitiesOnly yes
+            BatchMode yes
+            StrictHostKeyChecking yes
+            ConnectTimeout 15
+            ServerAliveInterval 15
+            ServerAliveCountMax 4
+          EOF
+          chmod 600 "$SSH_CONFIG"
+          printf 'SSH_CONFIG=%s\n' "$SSH_CONFIG" >> "$GITHUB_ENV"
+
+      - name: Copy tar.gz and launcher to EC2 build folder
+        run: |
+          ssh -F "$SSH_CONFIG" claim-wise-ec2 "install -d -m 700 '$REMOTE_UPLOAD_DIR'"
+          scp -F "$SSH_CONFIG" \
+            package/claim-wise-backend.tar.gz \
+            package/claim-wise-backend.tar.gz.sha256 \
+            package/ec2-run.sh \
+            package/deploy-ec2.sh \
+            package/claim-wise-backend.service \
+            "claim-wise-ec2:$REMOTE_UPLOAD_DIR/"
+
+      - name: Unpack into backend folder and start backend
+        run: |
+          ssh -F "$SSH_CONFIG" claim-wise-ec2 \
+            "bash '$REMOTE_UPLOAD_DIR/deploy-ec2.sh' '$REMOTE_UPLOAD_DIR'"
+
+      - name: Remove runner SSH credentials
+        if: always()
+        run: |
+          rm -f -- "$RUNNER_TEMP/claim-wise-ssh/id_ec2" \
+            "$RUNNER_TEMP/claim-wise-ssh/known_hosts" "$RUNNER_TEMP/claim-wise-ssh/config"

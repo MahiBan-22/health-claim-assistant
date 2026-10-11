@@ -1,5 +1,10 @@
 # Windows build and EC2 backend
 
+For automatic build, test, packaging and EC2 deployment after backend changes on
+`main`, use [the GitHub Actions setup](ec2-github-actions.md). That workflow installs
+the systemd service with `BIND_HOST=0.0.0.0`; the manual launcher below defaults to
+loopback access.
+
 The package contains Python application source, pinned runtime requirements and the
 synthetic sample fixtures used by the API. It excludes the frontend, tests, local
 virtual environments, credentials, existing claim data and logs. Python source needs
