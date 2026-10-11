@@ -12,3 +12,6 @@ logs/
 # Browser test artifacts
 frontend/test-results/
 frontend/playwright-report/
+
+# Demo video renders and the speech model downloaded for its narration
+demo/*

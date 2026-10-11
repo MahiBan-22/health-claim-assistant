@@ -4,6 +4,10 @@ React and TypeScript workspace styled with Tailwind CSS v4 through the Vite plug
 
 ## Development
 
+For Vercel dashboard deployment, choose `frontend` as the Root Directory and follow
+[Vercel setup](../docs/vercel-frontend.md). Production uses the `/api` proxy configured
+in `vercel.json`; no frontend environment variables are required.
+
 Run `npm ci`, then `npm run dev -- --host 127.0.0.1` from this directory, or use the repository's native startup script. The API is expected at http://127.0.0.1:8000; set `VITE_API_BASE` to point elsewhere.
 
 There is no login. The workspace opens on the home screen. The address keeps your place (`#/case/<id>`, `#/case/<id>/report/<id>`, `#/review`), so a reload returns to the same screen. Analysis updates arrive over a server-sent event stream with bounded reconnects. Reviewer mode is a sidebar switch that adds the `X-Workspace-Role: reviewer` header; the choice and the reviewer name are remembered in local storage.

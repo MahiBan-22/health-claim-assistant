@@ -1,6 +1,8 @@
-// The workspace has no login. The API accepts this interface's origin on the loopback address only.
-export const base: string =
-  import.meta.env.VITE_API_BASE ?? "http://127.0.0.1:8000";
+// Production uses Vercel's same-origin API proxy; local development uses the native API.
+export const base: string = (
+  import.meta.env.VITE_API_BASE?.trim() ||
+  (import.meta.env.PROD ? "/api" : "http://127.0.0.1:8000")
+).replace(/\/+$/, "");
 
 let reviewer = false;
 export const setReviewerMode = (value: boolean) => {

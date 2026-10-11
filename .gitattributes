@@ -1,1 +1,2 @@
 fixtures/** -text
+*.sh text eol=lf
