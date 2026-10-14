@@ -4,8 +4,6 @@ Mirrors the telemetry spans into the application database. Like telemetry it hol
 metadata only: step names, timings, counts and outcomes, never document text.
 """
 import json
-import sqlite3
-from contextlib import closing
 from datetime import datetime, timezone
 from . import db
 from .config import settings
@@ -52,7 +50,7 @@ def import_local_telemetry(run_id):
                     if item.get("event") != "span" or attributes.get("claim.run_id") != run_id:
                         continue
                     duration = float(attributes.get("claim.duration_ms", 0))
-                    added += db.execute(connection, "INSERT OR IGNORE INTO run_events VALUES (:id,:run,:parent,:name,:kind,:started,:duration,:attributes)",
+                    added += db.execute(connection, "INSERT INTO run_events VALUES (:id,:run,:parent,:name,:kind,:started,:duration,:attributes) ON CONFLICT(id) DO NOTHING",
                                         id=item["span_id"], run=run_id, parent=item["parent_span_id"], name=item["name"], kind=item["kind"],
                                         started=float(item["time"]) - duration / 1000, duration=duration, attributes=json.dumps(attributes)).rowcount
                 except (ValueError, KeyError, TypeError):
@@ -61,13 +59,13 @@ def import_local_telemetry(run_id):
 
 def checkpoint_values(thread_id):
     """Requests and findings so far for an analysis that has no report yet. Best effort."""
-    from langgraph.checkpoint.sqlite import SqliteSaver
+    from .checkpoints import saver
     path = settings().data_dir / "checkpoints.sqlite"
-    if not path.exists():
+    if not settings().postgres and not path.exists():
         return {}
     try:
-        with closing(sqlite3.connect(str(path), check_same_thread=False, timeout=3)) as connection:
-            saved = SqliteSaver(connection).get_tuple({"configurable": {"thread_id": thread_id}})
+        with saver(settings()) as store:
+            saved = store.get_tuple({"configurable": {"thread_id": thread_id}})
         return dict(saved.checkpoint.get("channel_values", {})) if saved else {}
     except Exception:
         return {}
@@ -131,9 +129,10 @@ def _attempt(root, children_of, live):
 def view(run, report_body=None):
     """The analysis as it actually ran: attempts, the plan, each request's passes, and packaging."""
     # rowid keeps recording order for steps that began within the same clock tick.
-    records = db.rows("SELECT * FROM run_events WHERE run_id=:run ORDER BY started_at, rowid", run=run["id"])
+    order = "started_at, id" if settings().postgres else "started_at, rowid"
+    records = db.rows("SELECT * FROM run_events WHERE run_id=:run ORDER BY " + order, run=run["id"])
     if not records and import_local_telemetry(run["id"]):
-        records = db.rows("SELECT * FROM run_events WHERE run_id=:run ORDER BY started_at, rowid", run=run["id"])
+        records = db.rows("SELECT * FROM run_events WHERE run_id=:run ORDER BY " + order, run=run["id"])
     for record_ in records:
         record_["attributes"] = json.loads(record_["attributes"])
     by_parent = {}

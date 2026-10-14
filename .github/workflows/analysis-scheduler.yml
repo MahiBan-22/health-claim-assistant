@@ -1,0 +1,29 @@
+name: Advance hosted claim analyses
+on:
+  schedule:
+    - cron: "*/5 * * * *"
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: hosted-analysis-scheduler
+  cancel-in-progress: false
+jobs:
+  advance:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 2
+    steps:
+      - name: Advance one saved analysis step
+        env:
+          BACKEND_URL: ${{ vars.CLAIMWISE_BACKEND_URL }}
+          CRON_SECRET: ${{ secrets.CLAIMWISE_CRON_SECRET }}
+        run: |
+          if [[ -z "$BACKEND_URL" || -z "$CRON_SECRET" ]]; then
+            echo "Set repository variable CLAIMWISE_BACKEND_URL and secret CLAIMWISE_CRON_SECRET to enable the scheduler."
+            exit 0
+          fi
+          [[ "$BACKEND_URL" =~ ^https://[a-zA-Z0-9.-]+$ ]] || { echo "CLAIMWISE_BACKEND_URL must be the HTTPS backend origin, with no trailing slash." >&2; exit 1; }
+          curl --fail --silent --show-error --output /dev/null --max-time 55 \
+            --retry 1 --retry-delay 2 \
+            --header "Authorization: Bearer $CRON_SECRET" \
+            "$BACKEND_URL/internal/jobs"

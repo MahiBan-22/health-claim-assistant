@@ -8,6 +8,16 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
     data_dir: Path = Path("data")
+    database_url: SecretStr = SecretStr("")
+    checkpoint_database_url: SecretStr = SecretStr("")
+    job_backend: Literal["rq", "postgres"] = "rq"
+    model_provider: Literal["codex", "openai"] = "codex"
+    openai_api_key: SecretStr = SecretStr("")
+    cron_secret: SecretStr = SecretStr("")
+    @property
+    def postgres(self) -> bool:
+        return bool(self.database_url.get_secret_value())
+
     log_dir: Path = Path("logs")
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = "INFO"
     log_max_bytes: int = Field(default=10 * 1024 * 1024, gt=0)

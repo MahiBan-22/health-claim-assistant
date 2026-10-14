@@ -62,7 +62,8 @@ export function CaseView({
   const hasLetter = latest.some((d) => d.kind === "insurer_communication");
   const hasSupport = latest.some((d) => d.kind !== "insurer_communication");
   const offline =
-    !!app.system && (!app.system.redis || app.system.workers === 0);
+    !!app.system && app.system.backend !== "postgres" &&
+    (!app.system.redis || app.system.workers === 0);
   const foreign = foreignReferences(item, documents);
   const stale =
     !!reports[0] &&

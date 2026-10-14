@@ -28,7 +28,7 @@ BLANK = "BLANK"
 SKIPPED = {"Fallback", "del", "moveFrom", "pPr", "rPr", "tblPr", "tblPrEx", "tblGrid", "trPr", "tcPr", "sectPr"}
 
 def luna_reader():
-    """The model's page reader, or None when the host's Codex CLI cannot run it."""
+    """The selected model's page reader, or None when inference is unavailable."""
     from .model import LunaModel
     model = LunaModel()
     return model.transcribe if model.available() else None

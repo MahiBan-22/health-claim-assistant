@@ -15,3 +15,4 @@ frontend/playwright-report/
 
 # Demo video renders and the speech model downloaded for its narration
 demo/*
+backend/fixtures/

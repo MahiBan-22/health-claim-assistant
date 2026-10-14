@@ -3,6 +3,7 @@ from contextlib import contextmanager
 from datetime import datetime, timezone
 from uuid import uuid4
 from sqlalchemy import create_engine, event, text
+from sqlalchemy.pool import NullPool
 from .config import settings
 
 SCHEMA = [
@@ -41,6 +42,20 @@ _engine = None
 def engine():
     global _engine
     if _engine is None:
+        if settings().postgres:
+            url = settings().database_url.get_secret_value()
+            if url.startswith("postgres://"):
+                url = "postgresql://" + url[len("postgres://"):]
+            url = url.replace("postgresql://", "postgresql+psycopg://", 1)
+            candidate = create_engine(url, poolclass=NullPool, hide_parameters=True,
+                                     connect_args={"connect_timeout": 10, "prepare_threshold": None})
+            with candidate.begin() as connection:
+                connection.execute(text("SELECT pg_advisory_xact_lock(708124001)"))
+                for statement in SCHEMA:
+                    connection.execute(text(statement.replace("started_at REAL", "started_at DOUBLE PRECISION").replace("duration_ms REAL", "duration_ms DOUBLE PRECISION")))
+                connection.execute(text("CREATE TABLE IF NOT EXISTS document_files (document_id TEXT PRIMARY KEY REFERENCES documents(id) ON DELETE CASCADE, content BYTEA NOT NULL)"))
+            _engine = candidate
+            return _engine
         directory = settings().data_dir.resolve()
         directory.mkdir(parents=True, exist_ok=True)
         _engine = create_engine("sqlite:///" + str(directory / "app.sqlite"), connect_args={"timeout": 30})
@@ -89,3 +104,26 @@ def documents(case_id, ids=None):
     for item in result:
         item["pages"] = json.loads(item["pages"])
     return [r for r in result if ids is None or r["id"] in ids]
+
+@contextmanager
+def analysis_lock(run_id):
+    """Session locks require a direct/session-pooled PostgreSQL connection, never PgBouncer transaction pooling."""
+    if not settings().postgres:
+        from filelock import FileLock
+        path = settings().data_dir / "runtime" / ("analysis-" + run_id + ".lock")
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with FileLock(str(path), timeout=0):
+            yield True
+        return
+    import hashlib
+    import psycopg
+    key = int.from_bytes(hashlib.sha256(run_id.encode()).digest()[:8], "big", signed=True)
+    url = settings().checkpoint_database_url.get_secret_value() or settings().database_url.get_secret_value()
+    url = url.replace("postgresql+psycopg://", "postgresql://", 1)
+    with psycopg.connect(url, autocommit=True, prepare_threshold=None, connect_timeout=10) as connection:
+        acquired = connection.execute("SELECT pg_try_advisory_lock(%s)", (key,)).fetchone()[0]
+        try:
+            yield acquired
+        finally:
+            if acquired:
+                connection.execute("SELECT pg_advisory_unlock(%s)", (key,))

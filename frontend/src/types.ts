@@ -140,6 +140,8 @@ export type Sample = {
   has_follow_up: boolean;
 };
 export type SystemStatus = {
+  backend?: "rq" | "postgres";
+  scheduler?: string;
   api: boolean;
   database: boolean;
   redis: boolean;

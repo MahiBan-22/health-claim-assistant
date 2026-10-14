@@ -13,6 +13,9 @@ def connection():
 
 def enqueue(run_id):
     config = settings()
+    if config.job_backend == "postgres":
+        # The analyses row is the durable queue. Cron advances one checkpointed node.
+        return
     try:
         Queue(QUEUE, connection=connection()).enqueue("app.workflow.process_run", run_id, job_timeout=config.job_timeout_seconds + 30)
     except Exception:
@@ -38,6 +41,9 @@ def worker_running():
     return False
 
 def queue_status():
+    if settings().job_backend == "postgres":
+        count = db.rows("SELECT COUNT(*) AS count FROM analyses WHERE status IN ('queued','running')")[0]["count"]
+        return {"redis": False, "workers": 0, "queued": count, "backend": "postgres", "scheduler": "vercel_cron"}
     workers = 1 if worker_running() else 0
     try:
         redis = connection()
@@ -62,3 +68,10 @@ def recover_interrupted_runs():
     if unfinished:
         logger.info("analysis_recovered count=%d", len(unfinished))
     return len(unfinished)
+
+def advance_pending():
+    from .workflow import process_run
+    for run in db.rows("SELECT id FROM analyses WHERE status IN ('queued','running') ORDER BY created_at, id LIMIT 20"):
+        if process_run(run["id"]):
+            return {"advanced": run["id"]}
+    return {"advanced": None}

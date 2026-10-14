@@ -52,7 +52,7 @@ def test_local_logs_exclude_raw_inputs_and_exception_messages(tmp_path):
 
 
 def test_real_sdk_graph_and_model_export_preserve_hierarchy_usage_and_redact(monkeypatch):
-    import neatlogs
+    neatlogs = pytest.importorskip("neatlogs", reason="Install the optional tracing extra to test the NeatLogs SDK")
     from langgraph.graph import StateGraph, START, END
     from opentelemetry.sdk.trace import TracerProvider
     from opentelemetry.sdk.trace.export import SimpleSpanProcessor

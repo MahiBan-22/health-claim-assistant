@@ -3,6 +3,8 @@ from redis import Redis
 from .config import settings
 
 def notify_case(case_id):
+    if settings().job_backend == "postgres":
+        return
     # SQLite remains the source of truth; messages only tell connected UIs to refresh.
     try:
         with Redis.from_url(settings().redis_url, socket_connect_timeout=2, socket_timeout=2) as redis:

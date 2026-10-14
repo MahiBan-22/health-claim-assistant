@@ -332,7 +332,7 @@ export function App() {
         dot: "bg-critical",
         connect: false,
       }
-    : system && (!system.redis || !system.workers)
+    : system && system.backend !== "postgres" && (!system.redis || !system.workers)
       ? {
           label: "Analysis engine offline",
           tone: "bg-amber-100 text-amber-950",
@@ -435,7 +435,7 @@ export function App() {
               "Delete this claim?",
               <>
                 This removes <strong>{target.title}</strong> with its documents,
-                analyses and reports from this computer. It cannot be undone.
+                analyses and reports from this workspace. It cannot be undone.
               </>,
               "Delete claim",
               async () => {
@@ -771,7 +771,7 @@ export function App() {
                 />
               )}
               <footer className="mt-12 flex flex-wrap justify-between gap-2 border-t border-line pt-5 text-xs text-muted">
-                <span>Claimwise · Runs on this computer</span>
+                <span>Claimwise · Your claim evidence workspace</span>
                 <span>
                   Explains your evidence. The insurer's decision stays with the
                   insurer.

@@ -1,88 +1,21 @@
-# Frontend deployment through the Vercel dashboard
+# Frontend deployment on Vercel
 
-The frontend is a static Vite application. Its production API base defaults to `/api`.
-`frontend/vercel.json` forwards `/api/*` to:
+Use two projects connected to this repository. The frontend project uses Root
+Directory `frontend`, the Vite preset, `npm ci`, `npm run build`, and output `dist`.
+Set Node.js to 22.x.
 
-```text
-http://ec2-54-158-24-179.compute-1.amazonaws.com:8000/*
-```
+Set `VITE_API_BASE=https://YOUR-BACKEND.vercel.app` in the frontend project's
+Production environment. Use the API origin only, without `/api` or another path.
+Set the corresponding Preview value only when a separate preview backend/database
+exists. Vite embeds this setting at build time: redeploy after changing it.
+The Vercel build rejects a missing or non-HTTPS API origin.
 
-The browser uses your HTTPS Vercel origin, avoiding browser mixed-content blocking.
-The Vercel-to-EC2 connection still uses HTTP. Add TLS to the backend and update the
-rewrite destination before sending sensitive records over that connection.
-Vercel external rewrites are documented at https://vercel.com/docs/routing/rewrites.
-API responses are configured not to be cached. Frontend navigation falls back to
-`index.html`; API errors are kept separate from that fallback.
+The EC2 rewrite has been removed. Browser requests now go directly to the separate
+HTTPS backend project. Backend `APP_ORIGIN` must equal the exact frontend origin,
+and `ALLOWED_HOSTS` must include the backend hostname. Arbitrary preview origins
+are intentionally not accepted.
 
-## Dashboard settings
-
-Import the Git repository and configure:
-
-| Setting | Value |
-| --- | --- |
-| Root Directory | `frontend` |
-| Framework Preset | Vite |
-| Install Command | `npm ci` |
-| Build Command | `npm run build` |
-| Output Directory | `dist` |
-| Node.js Version | 22.x |
-| Environment variables | None required |
-
-Push these changes to the Git branch you import before deploying. The config file must
-be within the selected `frontend` root. If a `VITE_API_BASE` variable already exists in
-the Vercel project, remove it or set it to `/api` for Production and Preview. Do not set
-it to the HTTP EC2 address. Vite embeds variables at build time, so redeploy after
-changing them. The optional example is in `frontend/.env.example`.
-
-## Configure the EC2 backend after getting your Vercel URL
-
-To build, test and deploy backend changes automatically, follow
-[the GitHub Actions setup](ec2-github-actions.md). It installs and starts the
-backend service; the `.env` settings and network access below still apply.
-
-Edit `/home/ec2-user/claim-wise-build/.env`, replacing `YOUR-PROJECT`:
-
-```dotenv
-APP_ORIGIN=https://YOUR-PROJECT.vercel.app
-ALLOWED_HOSTS=127.0.0.1,localhost,ec2-54-158-24-179.compute-1.amazonaws.com,YOUR-PROJECT.vercel.app
-```
-
-Use the exact frontend origin, without a path or trailing slash. Use your custom domain
-instead if that is the URL you open. The current backend supports one configured
-frontend origin; arbitrary Vercel preview domains will not be accepted. Hostnames have
-no scheme or port; both the EC2 and frontend hostname are listed for proxy routing.
-
-Stop the backend and restart it so the launcher copies the updated `.env`:
-
-```bash
-BIND_HOST=0.0.0.0 bash /home/ec2-user/claim-wise-build/ec2-run.sh
-```
-
-If managed by the existing systemd service with `BIND_HOST=0.0.0.0` configured:
-
-```bash
-sudo systemctl restart claim-wise-backend
-```
-
-EC2 port 8000 must be reachable from Vercel, not only from your laptop IP. A security
-group rule allowing only your laptop will make the proxy fail. Use a suitable protected
-ingress or Vercel egress configuration for the deployment; the current app has no login.
-
-## Verify after deployment
-
-1. Open `https://YOUR-PROJECT.vercel.app/api/health`; expect JSON with `status: "ok"`.
-2. Open the frontend. In browser DevTools, API calls should go to your Vercel domain
-   under `/api/`, never to the HTTP EC2 URL or `127.0.0.1`.
-3. Create a synthetic sample claim and verify uploads, downloads and analysis updates.
-
-A backend 400 indicates `ALLOWED_HOSTS`; 403 indicates `APP_ORIGIN`. A proxy timeout
-or 502 requires checking EC2 reachability, the security group and the API listener.
-Streaming status requests reconnect automatically; a proxy may close long connections.
-Validate large uploads and long document extraction requests against the hosted proxy's
-limits. The build can be checked locally with `cd frontend` and `npm run build`.
-
-Live analysis uses the Codex CLI signed in on the EC2 host (see
-[ec2-backend.md](ec2-backend.md)); the frontend offers no sign-in and holds no model
-credentials. Deploy the backend before a frontend build that expects `GET /api/system/model`.
-This frontend configuration does not add server authentication: every visitor's analysis
-spends the host account's usage.
+Follow [backend and PostgreSQL setup](vercel-backend.md) before cutting over the UI.
+Verify `/health` on the backend, then create a synthetic case through the frontend,
+upload a document, run analysis, and download originals and the response package.
+The existing local development default remains `http://127.0.0.1:8000`.

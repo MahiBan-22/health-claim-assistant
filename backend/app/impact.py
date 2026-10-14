@@ -2,6 +2,7 @@
 import json
 
 from . import db
+from .config import settings
 
 
 def summarize(owner, sample_references):
@@ -12,8 +13,9 @@ def summarize(owner, sample_references):
                              cited_points=0, receipts_confirmed=0, policy_points=0,
                              timed_reports=0, analysis_seconds=0, report_seconds=[])
     cases = db.rows("SELECT id, claim_reference FROM cases WHERE owner=:owner", owner=owner)
+    tie = "r.id" if settings().postgres else "r.rowid"
     reports = db.rows("""SELECT r.* FROM reports r JOIN cases c ON c.id=r.case_id
-                         WHERE c.owner=:owner ORDER BY r.created_at DESC, r.rowid DESC""", owner=owner)
+                         WHERE c.owner=:owner ORDER BY r.created_at DESC, """ + tie + " DESC", owner=owner)
     latest = {}
     for report in reports:
         latest.setdefault(report["case_id"], report)

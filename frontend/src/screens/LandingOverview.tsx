@@ -1027,7 +1027,7 @@ export function LandingFooter() {
           </nav>
         </div>
         <div className="lp-footer-base">
-          <span>Claimwise · Runs on this computer</span>
+          <span>Claimwise · Your claim evidence workspace</span>
           <span>
             Explains your evidence. The insurer’s decision stays with the
             insurer.

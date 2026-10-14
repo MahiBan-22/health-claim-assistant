@@ -4,16 +4,15 @@ import io
 import json
 import logging
 import shutil
-import sqlite3
 import zipfile
-from contextlib import asynccontextmanager, closing
+from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Annotated, Literal
 from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, Response, StreamingResponse
 from starlette.concurrency import run_in_threadpool
-from . import db, intake, trace_store
+from . import db, intake, trace_store, storage
 from .config import settings
 from .extraction import extract
 from .jobs import enqueue, queue_status
@@ -107,14 +106,12 @@ def notify(case_id):
     notify_case(case_id)
 
 def drop_checkpoints(thread_ids):
-    from langgraph.checkpoint.sqlite import SqliteSaver
-    checkpoint = settings().data_dir / "checkpoints.sqlite"
-    if checkpoint.exists() and thread_ids:
-        with closing(sqlite3.connect(str(checkpoint), check_same_thread=False)) as connection:
-            saver = SqliteSaver(connection)
+    from .checkpoints import saver
+    if thread_ids and (settings().postgres or (settings().data_dir / "checkpoints.sqlite").exists()):
+        with saver(settings()) as store:
             for thread_id in thread_ids:
-                saver.delete_thread(thread_id)
-            connection.commit()
+                store.delete_thread(thread_id)
+
 
 def sample_keys():
     return {item["claim_reference"]: item for item in intake.scenarios(settings().fixtures_dir)}
@@ -164,8 +161,9 @@ def store_document(case_id, data, filename, kind, logical_id=None):
     document_id = db.uid()
     digest = hashlib.sha256(data).hexdigest()
     path = settings().data_dir.resolve() / "cases" / case_id / (document_id + Path(filename).suffix.lower())
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_bytes(data)
+    if not settings().postgres:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(data)
     try:
         with db.transaction() as connection:
             # Acquire a write lock before choosing the next version.
@@ -179,7 +177,9 @@ def store_document(case_id, data, filename, kind, logical_id=None):
                 logical_id, version = db.uid(), 1
             db.execute(connection, "INSERT INTO documents VALUES (:id,:case,:logical,:version,:kind,:filename,:hash,:path,:pages,:status,:time)",
                        id=document_id, case=case_id, logical=logical_id, version=version, kind=kind,
-                       filename=filename, hash=digest, path=str(path), pages=json.dumps(pages), status=status, time=db.now())
+                       filename=filename, hash=digest, path="postgres:" + document_id if settings().postgres else str(path), pages=json.dumps(pages), status=status, time=db.now())
+            if settings().postgres:
+                db.execute(connection, "INSERT INTO document_files VALUES (:id,:content)", id=document_id, content=data)
     except Exception:
         path.unlink(missing_ok=True)
         raise
@@ -189,7 +189,9 @@ def store_document(case_id, data, filename, kind, logical_id=None):
 @app.get("/health")
 def health():
     db.engine()
-    return {"status": "ok", "model": settings().llm_model, "authentication": "local workspace", "model_access": "codex_cli"}
+    return {"status": "ok", "model": settings().llm_model,
+            "authentication": "shared workspace" if settings().postgres else "local workspace",
+            "model_access": "openai" if settings().model_provider == "openai" else "codex_cli"}
 
 @app.get("/system/status")
 def system_status(user: User):
@@ -323,7 +325,7 @@ def delete_document(case_id: str, document_id: str, user: User):
         raise HTTPException(409, "A saved analysis used this document. Delete that analysis first, or upload a replacement version.")
     with db.transaction() as connection:
         db.execute(connection, "DELETE FROM documents WHERE id=:id", id=document_id)
-    Path(document["path"]).unlink(missing_ok=True)
+    storage.remove(document)
     return {"deleted": True}
 
 @app.get("/cases/{case_id}/documents/{document_id}/pages/{page}")
@@ -337,6 +339,8 @@ def read_page(case_id: str, document_id: str, page: int, user: User):
 @app.get("/cases/{case_id}/documents/{document_id}/original")
 def original(case_id: str, document_id: str, user: User):
     document = document_for(case_id, document_id, user)
+    if settings().postgres:
+        return storage.response(storage.read(document), "application/octet-stream", document["filename"])
     return FileResponse(document["path"], filename=document["filename"], media_type="application/octet-stream")
 
 @app.get("/cases/{case_id}/timeline")
@@ -366,6 +370,14 @@ def list_analyses(case_id: str, user: User):
 
 @app.get("/cases/{case_id}/analysis-events")
 async def analysis_events(case_id: str, user: User):
+    if settings().job_backend == "postgres":
+        await run_in_threadpool(case_for, case_id, user)
+        async def snapshots():
+            # Short lived connections reconnect through the existing client listener.
+            for _ in range(10):
+                yield "data: " + json.dumps(await run_in_threadpool(list_analyses, case_id, user)) + "\n\n"
+                await asyncio.sleep(3)
+        return StreamingResponse(snapshots(), media_type="text/event-stream", headers={"Cache-Control": "no-store"})
     from redis.asyncio import Redis as AsyncRedis
     await run_in_threadpool(case_for, case_id, user)
     redis = AsyncRedis.from_url(settings().redis_url, socket_connect_timeout=2)
@@ -398,12 +410,12 @@ async def analysis_events(case_id: str, user: User):
 
 @app.delete("/analyses/{run_id}")
 def delete_analysis(run_id: str, user: User):
-    from filelock import FileLock, Timeout
+    from filelock import Timeout
     run = run_for(run_id, user)
-    lock = settings().data_dir / "runtime" / ("analysis-" + run["id"] + ".lock")
-    lock.parent.mkdir(parents=True, exist_ok=True)
     try:
-        with FileLock(str(lock), timeout=0):
+        with db.analysis_lock(run_id) as acquired:
+            if not acquired:
+                raise HTTPException(409, "The analysis is still finishing; try again shortly")
             with db.transaction() as connection:
                 # Serialize deletion against resume and worker status transitions.
                 db.execute(connection, "UPDATE analyses SET status=status WHERE id=:id", id=run_id)
@@ -492,10 +504,9 @@ def report_package(report_id: str, user: User):
         archive.writestr("report.json", json.dumps(body, indent=2))
         for index, item in enumerate(body.get("attachment_manifest", []), 1):
             document = documents.get(item["document_id"])
-            if document and Path(document["path"]).is_file():
-                archive.write(document["path"], "attachments/" + str(index).zfill(2) + "-v" + str(document["version"]) + "-" + document["filename"])
-    return Response(buffer.getvalue(), media_type="application/zip",
-                    headers={"Content-Disposition": 'attachment; filename="claim-response-package-v' + str(body.get("version", 1)) + '.zip"'})
+            if document:
+                archive.writestr("attachments/" + str(index).zfill(2) + "-v" + str(document["version"]) + "-" + document["filename"], storage.read(document))
+    return storage.response(buffer.getvalue(), "application/zip", "claim-response-package-v" + str(body.get("version", 1)) + ".zip")
 
 @app.get("/review-queue")
 def review_queue(user: User):
@@ -592,6 +603,18 @@ def list_inquiries(user: User):
 
 @app.get("/system/model")
 def model_status(user: User):
-    """Whether the host's Codex CLI can run analyses. Its sign-in is managed on the server, never from a browser."""
-    from . import codex
-    return codex.status()
+    """Model transport configuration; credentials are managed on the server."""
+    from .model import LunaModel
+    return LunaModel().transport.status()
+
+
+@app.get("/internal/jobs")
+def advance_jobs(authorization: Annotated[str | None, Header()] = None):
+    import secrets
+    secret = settings().cron_secret.get_secret_value()
+    if not secret or not secrets.compare_digest(authorization or "", "Bearer " + secret):
+        raise HTTPException(401, "Unauthorized")
+    if settings().job_backend != "postgres":
+        raise HTTPException(409, "PostgreSQL jobs are not enabled")
+    from .jobs import advance_pending
+    return advance_pending()

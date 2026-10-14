@@ -96,7 +96,7 @@ jobs:
   deploy:
     name: Deploy to EC2
     needs: build-test
-    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    if: github.event_name == 'workflow_dispatch' && vars.ENABLE_EC2_DEPLOY == 'true' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-24.04
     timeout-minutes: 25
     environment: production

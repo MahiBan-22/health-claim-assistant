@@ -583,7 +583,7 @@ export function SystemDialog({ system }: { system: SystemStatus | null }) {
         {
           name: "Workspace service",
           ok: system.api,
-          detail: "Stores your claims and documents on this computer.",
+          detail: "Stores your claims and documents in this workspace.",
         },
         {
           name: "Database",
@@ -598,16 +598,20 @@ export function SystemDialog({ system }: { system: SystemStatus | null }) {
         },
         {
           name: "Analysis queue",
-          ok: system.redis,
-          detail: system.redis
+          ok: system.backend === "postgres" || system.redis,
+          detail: system.backend === "postgres"
+            ? system.queued + " waiting for scheduled processing."
+            : system.redis
             ? system.queued + " waiting."
             : "Redis is not reachable. Start it with scripts/start-native.ps1.",
         },
         {
-          name: "Analysis worker",
-          ok: system.workers > 0,
+          name: "Analysis execution",
+          ok: system.backend === "postgres" || system.workers > 0,
           detail:
-            system.workers > 0
+            system.backend === "postgres"
+              ? "Scheduled processing is configured. Analyses advance as the server scheduler runs."
+              : system.workers > 0
               ? "Running. Interrupted analyses resume automatically."
               : "Not running. New analyses will wait until it starts.",
         },
@@ -635,7 +639,7 @@ export function SystemDialog({ system }: { system: SystemStatus | null }) {
   return (
     <Modal
       title="System status"
-      subtitle="Everything runs on this computer. Only the analysis text goes to the AI model."
+      subtitle="The workspace service stores documents and runs analyses using its configured AI model."
       close={() => app.open(null)}
     >
       {!system ? (

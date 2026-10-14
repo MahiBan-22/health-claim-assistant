@@ -1,11 +1,8 @@
 import json
 import logging
-import sqlite3
 import time
-from contextlib import closing
 from typing import TypedDict
 from langgraph.graph import StateGraph, START, END
-from langgraph.checkpoint.sqlite import SqliteSaver
 from pydantic import ValidationError
 from .config import settings
 from . import db
@@ -260,6 +257,9 @@ class ClaimWorkflow:
     def package(self, state):
         existing = db.rows("SELECT id FROM reports WHERE run_id=:run", run=self.run["id"])
         if existing:
+            with db.transaction() as connection:
+                db.execute(connection, "UPDATE analyses SET report_id=:report,status='completed',error=NULL WHERE id=:run",
+                           report=existing[0]["id"], run=self.run["id"])
             return {"report_id": existing[0]["id"]}
         refs = [r for f in state["findings"] for key in ("evidence_refs", "policy_refs", "receipt_refs") for r in f[key]]
         cited_ids = {r["document_id"] for r in refs}
@@ -299,16 +299,16 @@ class ClaimWorkflow:
 
 @worker_telemetry
 def process_run(run_id: str):
-    from filelock import FileLock
     from .notifications import notify_case
     from . import trace_store
     trace_store.install()
-    lock = settings().data_dir / "runtime" / ("analysis-" + run_id + ".lock")
-    lock.parent.mkdir(parents=True, exist_ok=True)
-    with FileLock(str(lock)):
+    with db.analysis_lock(run_id) as acquired:
+        if not acquired:
+            return False
         records = db.rows("SELECT * FROM analyses WHERE id=:id", id=run_id)
-        if not records or records[0]["status"] != "queued":
-            return
+        allowed = {"queued", "running"} if settings().job_backend == "postgres" else {"queued"}
+        if not records or records[0]["status"] not in allowed:
+            return False
         try:
             with span("claim.analysis", "WORKFLOW", **{"claim.run_id": run_id, "claim.instrumentation_version": "1"}) as active:
                 logging.getLogger(__name__).info("analysis_trace run_id=%s trace_id=%s", run_id, active.trace_id)
@@ -320,6 +320,7 @@ def process_run(run_id: str):
                     if outcome[0]["status"] == "paused": active.error("AnalysisPaused")
         finally:
             notify_case(records[0]["case_id"])
+        return True
 
 def _process_run(run_id: str):
     if not logging.getLogger("app").handlers:
@@ -344,14 +345,17 @@ def _process_run(run_id: str):
             current_span().set_attribute("claim.document_count", len(workflow.docs))
             current_span().set_attribute("claim.source_versions", json.dumps([{ "document_id": d["id"], "version": d["version"]} for d in workflow.docs]))
         workflow.model.check_available()
-        checkpoint_file = settings().data_dir / "checkpoints.sqlite"
-        with closing(sqlite3.connect(str(checkpoint_file), check_same_thread=False)) as connection:
-            saver = SqliteSaver(connection)
-            graph = workflow.graph(saver)
+        from .checkpoints import saver
+        with saver(settings()) as store:
+            graph = workflow.graph(store)
             config = {"configurable": {"thread_id": run["thread_id"]}, "recursion_limit": 120, "callbacks": graph_callbacks(), "run_name": "claim.graph"}
             saved = graph.get_state(config)
-            graph.invoke(None if saved.values else {"run_id": run_id}, config)
-            connection.commit()
+            if settings().job_backend == "postgres":
+                graph.invoke(None if saved.values else {"run_id": run_id}, config, interrupt_after="*")
+                with db.transaction() as connection:
+                    db.execute(connection, "UPDATE analyses SET status='queued' WHERE id=:id AND status='running'", id=run_id)
+            else:
+                graph.invoke(None if saved.values else {"run_id": run_id}, config)
         logger.info("analysis_completed run_id=%s", run_id)
     except Exception as error:
         logger.error("analysis_paused run_id=%s error_type=%s", run_id, type(error).__name__, exc_info=True)

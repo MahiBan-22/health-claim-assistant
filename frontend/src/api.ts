@@ -1,4 +1,4 @@
-// Production uses Vercel's same-origin API proxy; local development uses the native API.
+// Hosted projects set VITE_API_BASE to the separate backend's HTTPS origin.
 export const base: string = (
   import.meta.env.VITE_API_BASE?.trim() ||
   (import.meta.env.PROD ? "/api" : "http://127.0.0.1:8000")

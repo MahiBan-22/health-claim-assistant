@@ -1,4 +1,4 @@
-"""Model adapter over the host's Codex CLI. Never reads API keys or the CLI's credential files."""
+"""Validated model adapter with local Codex and hosted OpenAI transports."""
 import json
 import re
 import time
@@ -35,14 +35,21 @@ class LunaModel:
     def __init__(self):
         self.config = settings()
 
+    @property
+    def transport(self):
+        if self.config.model_provider == "openai":
+            from . import openai_model
+            return openai_model
+        return codex
+
     def available(self) -> bool:
-        """Whether the host's Codex CLI is signed in and lists the configured model."""
-        status = codex.status()
+        """Whether the selected transport is configured for inference."""
+        status = self.transport.status()
         return status["connected"] and status["model_available"]
 
     @traced("claim.catalog")
     def check_available(self):
-        status = codex.status()
+        status = self.transport.status()
         if not status["connected"] or not status["model_available"]:
             raise ModelPaused(status["message"])
 
@@ -70,7 +77,7 @@ class LunaModel:
                 # Bounded retry of a failed run; the corrective evidence cycle is a separate budget.
                 for delay in (*BACKOFF_SECONDS, None):
                     try:
-                        output, usage = codex.answer(prompt, image, suffix)
+                        output, usage = self.transport.answer(prompt, image, suffix)
                         break
                     except codex.Transient as failure:
                         if delay is None:
@@ -83,7 +90,7 @@ class LunaModel:
                 raise
             active.set_attribute("claim.stream_state", "completed")
             counts = {"prompt": usage.get("input_tokens"), "completion": usage.get("output_tokens"),
-                      "cache_read": usage.get("cached_input_tokens"), "reasoning": usage.get("reasoning_output_tokens")}
+                      "cache_read": usage.get("cached_input_tokens", (usage.get("input_tokens_details") or {}).get("cached_tokens")), "reasoning": usage.get("reasoning_output_tokens", (usage.get("output_tokens_details") or {}).get("reasoning_tokens"))}
             if type(counts["prompt"]) is int and type(counts["completion"]) is int:
                 counts["total"] = counts["prompt"] + counts["completion"]
             for target, value in counts.items():

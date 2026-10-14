@@ -8,7 +8,9 @@ shows what is supported and what is missing, and drafts a reply with page-level 
 See [native setup and model access](docs/native-run.md).
 For a backend-only Windows package and EC2 extraction/startup workflow, see
 [EC2 backend deployment](docs/ec2-backend.md).
-For dashboard-based frontend deployment, see [Vercel frontend setup](docs/vercel-frontend.md).
+For separate frontend and backend projects on Vercel with PostgreSQL and an OpenAI API key,
+see [Vercel backend and database setup](docs/vercel-backend.md) and
+[Vercel frontend setup](docs/vercel-frontend.md).
 Read the [architecture review and verification record](docs/architecture-review.md) and the
 [neatHack requirements and evidence](docs/hackathon.md).
 

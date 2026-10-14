@@ -21,8 +21,7 @@ class Boundary extends Component<{ children: ReactNode }, { failed: boolean }> {
             Something went wrong on this screen
           </h1>
           <p className="mt-2 text-sm leading-relaxed text-ink-soft">
-            Your claims and documents are safe on this computer. Reload to carry
-            on where you were.
+            Reload the workspace to continue.
           </p>
           <button
             className="btn btn-primary mx-auto mt-6"
